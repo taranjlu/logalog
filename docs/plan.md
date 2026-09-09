@@ -27,6 +27,8 @@ The requested design includes:
 
 - Loguru for logging configuration and delivery.
 - Rich for human-readable messages, with separate structured output.
+- Reusable stdout and stderr consoles when both output streams are in use.
+- Human-readable and structured log files, with rotation and other applicable Loguru file features.
 - Beartype for runtime type checking within the library.
 - Queued output by default and a synchronous override.
 - Independent verbose and debug controls, plus a separate silence control.
@@ -91,6 +93,25 @@ Measure log-call delays under load. Queued output does not guarantee that every 
 Document normal-shutdown guarantees and possible loss after forced termination.
 Do not promise one exact event order across all threads and processes.
 
+### Reusable stdout and stderr consoles
+
+Rich supports reusable console instances. It does not need two consoles for every application.[11]
+`Console()` uses stdout by default. `Console(stderr=True)` selects stderr unless an explicit `file` overrides it.[14]
+Use one reusable console for each output stream that the library enables. Do not create a console for every message.
+
+Propose `STDOUT_CONSOLE` and `STDERR_CONSOLE` as names for shared console access.
+Keep `LOG` as the normal logging API. Send diagnostics to stderr by default.
+Reserve stdout for intentional application output or an explicit logging destination.
+Do not send the same record to both consoles unless configuration requests it.
+Keep protocol data and structured stdout output separate from Rich output.
+
+Create the consoles when needed and reuse them within the process that owns the output.
+Do not treat console instances as shared objects across independent processes.
+Allow an application to supply its own consoles. Test redirected streams and terminal capabilities separately for stdout and stderr.
+
+Direct console calls bypass `LOG`, its live environment controls, and file destinations. Document this distinction.
+Use separate rendering contexts only when a file destination needs different formatting. Two consoles do not limit the number of log destinations.
+
 ### Human-readable and structured output
 
 Use Rich for every human-readable output path, including plain terminal output without color.
@@ -117,6 +138,43 @@ Assess it after the event schema exists. Do not add a second schema framework wi
 Treat ordinary strings as literal text. Accept markup only through an explicit option. Escape untrusted content.
 Do not include local variables in exception reports or capture function arguments by default.
 Remove or mask sensitive fields before they enter the queue or any output destination.
+
+### File output and rotation
+
+Support human-readable text files and structured JSON Lines files, independently or alongside terminal output.
+Make file destinations explicit. Do not create log files merely because an application imports the package.
+Render human-readable content through Rich without terminal control sequences. Configure file width separately from terminal width.
+Send structured records directly to the encoder without Rich rendering.
+
+Use Loguru's native file-path sinks for file management.
+Loguru supplies rotation, retention, compression, delayed file creation, file watching, and file-opening settings for these sinks.[1]
+Passing an open file or a callable sink does not automatically retain those file-path features.[1]
+Test the Rich rendering path with native file management before selecting the integration.
+Do not build a second rotation system or rely on Loguru's private classes.
+
+Expose applicable file options through typed configuration:
+
+- Rotation by size or time, with trusted programmatic callbacks where needed.
+- Retention by archive count or age.
+- Archive compression, such as gzip.
+- Delayed creation and optional reopening after external file replacement.
+- File paths, filename time fields, append mode, encoding, and buffering.
+
+Define finite rotation and retention defaults for the file preset before enabling it.
+Allow explicit overrides, including a deliberate no-rotation option.
+Use one writer and rotation owner for each shared file across processes.
+Do not let independent workers rotate the same path.
+Define behavior for permission failures, full disks, compression failures, and shutdown with pending records.
+Never log from a rotation, retention, or compression callback through the same logging path.
+
+Loguru's `serialize=True` produces JSON, not MessagePack.[1]
+Start structured file support with JSON Lines. Keep MessagePack optional.
+Before adding binary files, prove that their encoder and writer preserve the same rotation and shutdown guarantees.
+Do not assume that a custom binary sink inherits Loguru's native file management.
+
+A disposable test with Rich 15.0.0 and Loguru 0.7.3 confirmed separate console routing and native queued file output.
+Text and JSON Lines tests passed size rotation, count retention, gzip compression, and delayed creation.
+Retained JSON records decoded successfully. This test did not verify the complete Rich-to-Loguru integration or multiprocessing.
 
 ### Independent environment controls
 
@@ -291,11 +349,11 @@ Do not imply that one quoted command string is portable across shells.
 
 ## Execution stages
 
-1. **Test the main design risks.** Compare configuration libraries and test Rich payloads, process queues, shutdown, and runtime checks.
+1. **Test the main design risks.** Compare configuration libraries. Test Rich payloads, native file rotation, process queues, shutdown, and runtime checks.
 2. **Approve the design choices.** Select the configuration library, silence rules, module names, type-checking limits, and handler rules.
-3. **Build the core.** Add typed `LOG` methods, Rich output, queued and synchronous modes, independent filters, and lifecycle controls.
+3. **Build the core.** Add typed `LOG` methods, shared consoles, rotating text files, queued and synchronous modes, filters, and lifecycle controls.
 4. **Add configuration.** Implement the selected loader, each specified file format, module overrides, and settings discovery.
-5. **Add structured output and utilities.** Implement JSON Lines, assess MessagePack, then add sections, timers, decorators, and command display.
+5. **Add structured output and utilities.** Implement rotating JSON Lines files and assess MessagePack. Add sections, timers, decorators, and command display.
 6. **Verify and document.** Test the supported Python and operating-system matrix, dependency security, built wheels, and examples.
 
 Use small behavior tests throughout. Do not impose test-driven development or a commit after every task.
@@ -317,7 +375,11 @@ Keep implementation outside this initial planning change.
 - Threads and supported process models produce complete, non-duplicated events during controlled shutdown.
 - Concurrent sections keep separate context and restore it after failures.
 - Rich output wraps at narrow widths. Tables, code blocks, exceptions, and literal brackets remain readable.
-- JSON Lines and MessagePack decode independently and retain context without terminal formatting.
+- Stdout and stderr consoles reuse their configured streams without duplicate records or protocol contamination.
+- Text and JSON Lines files rotate, retain archives, and compress according to configuration.
+- File tests cover delayed creation, external replacement, permission errors, full disks, and shutdown.
+- Concurrent workers use one rotation owner per shared file. Retained records remain complete and readable.
+- JSON Lines and optional MessagePack decode independently and retain context without terminal formatting.
 - Invalid arguments fail before the affected operation starts. Invalid return values fail before they reach the caller. Test nested invalid data too.
 - Command display never executes a command or reveals fields marked for redaction.
 - Formatting, linting, type checks, tests, package builds, and isolated wheel checks pass.
@@ -331,6 +393,7 @@ Keep live environment controls above file and API values at the same module scop
 Approve the module-name encoding and configuration discovery policy.
 Select a configuration library after the comparison, including its secure XML path.
 Choose how Rich content passes through the queue and how the library manages its Loguru handlers.
+Approve shared console access and the default rotation and retention policy for files.
 Specify where every data item needs validation. Define the supported Python versions and operating systems.
 
 Choose a license before public distribution. Check name availability before replacing the code name or publishing.
@@ -360,3 +423,5 @@ Choose a license before public distribution. Check name availability before repl
 [12] https://beartype.readthedocs.io/en/latest/api_decor
 
 [13] https://docs.python.org/3/library/os.html
+
+[14] https://rich.readthedocs.io/en/stable/reference/console.html
