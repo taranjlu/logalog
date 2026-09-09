@@ -29,7 +29,9 @@ The requested design includes:
 - Rich for human-readable messages, with separate structured output.
 - Beartype for runtime type checking within the library.
 - Queued output by default and a synchronous override.
-- Independent verbose and debug controls, plus global and per-module silence controls.
+- Independent verbose and debug controls, plus a separate silence control.
+- A global environment variable and an automatically generated per-module variable for each of the three controls.
+- Live environment checks on every log call, without restart, polling delay, or a reload command.
 - Configuration from `pyproject.toml`, TOML, YAML, JSON, and XML, with defined merge rules.
 - One imported `LOG` object for normal use.
 - Utilities for nested sections, function logs, elapsed time, and subprocess command display.
@@ -118,11 +120,20 @@ Remove or mask sensitive fields before they enter the queue or any output destin
 
 ### Independent environment controls
 
-Support these global environment variables:
+Provide both global and per-module versions of `VERBOSE`, `DEBUG`, and `SILENT`.
+Generate each module's variable names automatically from its full name. Do not make callers register these names.
+The global variables apply across modules. Module variables change behavior for the selected module under the inheritance rules below.
 
-- `<prefix>_VERBOSE`
-- `<prefix>_DEBUG`
-- `<prefix>_SILENT`
+Example for the prefix `MALIDEITER` and module `myapp.worker`:
+
+| Control | Global variable | Automatically generated module variable |
+| --- | --- | --- |
+| Verbose | `MALIDEITER_VERBOSE` | `MALIDEITER_MODULE__MYAPP__WORKER_VERBOSE` |
+| Debug | `MALIDEITER_DEBUG` | `MALIDEITER_MODULE__MYAPP__WORKER_DEBUG` |
+| Silent | `MALIDEITER_SILENT` | `MALIDEITER_MODULE__MYAPP__WORKER_SILENT` |
+
+Both scopes are requirements for every control. The exact module-name encoding remains a proposal.
+Substitute the configured prefix for `MALIDEITER`.
 
 Use independent on/off controls, not one minimum severity level.
 Loguru supports callable filters for each sink.[1]
@@ -142,9 +153,8 @@ Propose that global `SILENT=true` suppress all library-owned output, including e
 Apply module silence only to that module and its children.
 Confirm these silence rules before implementation.
 
-Generate module controls from the full module name.
-A proposed readable form is `MALIDEITER_MODULE__MYAPP__WORKER_DEBUG` for `myapp.worker`.
-Specify encoding and collision handling before adopting this form.
+Use the same module-name encoding for all three controls.
+Specify encoding and collision handling before adopting the proposed names above.
 Test underscores, case differences, nested modules, and `__main__`.
 
 Provide a public helper that accepts a module name and returns every exact environment variable name.
@@ -156,6 +166,41 @@ For example, `myapp.worker` inherits settings from `myapp` unless it has an expl
 An unset value inherits. Explicit `false` can disable inherited verbose or debug output.
 A child module cannot cancel silence from a parent module.
 Define accepted Boolean strings and reject invalid values with a named configuration error.
+
+### Live environment changes
+
+Each log call reads the applicable controls directly from the current process's `os.environ`.
+A change takes effect on the next call, including calls that an earlier value would suppress.
+Check both scopes on every call: global controls and applicable parent-module and exact-module controls.
+Apply this live-check rule to verbose, debug, and silence controls alike.
+Detect additions, value changes, and deletions without restart or explicit configuration reload.
+Do not cache environment values or resolved on/off decisions between calls.
+
+Cache only stable lookup information, such as generated variable names and module-parent paths.
+Use direct key lookups and small Boolean conversions. Do not scan or copy the whole environment.
+Keep file loading and configuration-library reconstruction outside the log-call path.
+Skip library-controlled formatting, Rich rendering, and queue serialization when the controls suppress a message.
+This cannot avoid argument evaluation that the caller completes before the log call.
+
+For these three controls, live environment values override file and API values at the same module scope.
+When a variable disappears, use the remaining configuration and module inheritance rules.
+Other settings retain the source order below.
+
+Evaluate the controls in the calling process in both modes. In queued mode, evaluate them before queue submission.
+Proposed queue rule: accepted records retain that decision while they wait for output.
+Do not recheck them against the output worker's environment.
+Under this proposal, silence affects new calls but does not cancel records already in the queue.
+Confirm this queue rule before implementation.
+
+Support live updates through `os.environ`. Direct `os.putenv()` calls do not update that Python mapping.[13]
+
+Environment values belong to each process. A later shell or parent-process change does not update an existing worker's environment.
+Update each logging process separately. Cross-process control would need a separate communication mechanism.
+Do not promise one atomic update when another thread changes several variables during a log call.
+
+Measure enabled and suppressed calls, short and deep module paths, and repeated value changes.
+Include module lookup, type checks, environment reads, and Boolean conversion in the measurements.
+Compare against a fixed-setting baseline. Select optimizations from measured results without weakening live checks.
 
 ## Configuration research
 
@@ -192,6 +237,7 @@ Load settings in this order. Later sources override earlier values at the same m
 4. Environment variables.
 5. Explicit API settings.
 
+For `VERBOSE`, `DEBUG`, and `SILENT`, use the live environment override rule above instead of this source order.
 Then resolve module inheritance and apply the silence rules.
 A module-specific value takes priority over a global value, except where a silence rule prevents output.
 Confirm this interaction between source priority and module scope before implementation.
@@ -258,7 +304,14 @@ Keep implementation outside this initial planning change.
 ## Completion checks
 
 - One import supports ordinary use without extra setup code.
+- Each control has a global variable and automatically generated module variables.
+- The discovery helper returns the exact verbose, debug, and silence names for any valid module name.
 - All verbose and debug combinations work globally and per module.
+- Global and module silence each follow the approved rules without changing unrelated modules unexpectedly.
+- Adding, changing, or deleting a control in `os.environ` affects the next call without reload.
+- Repeated off/on changes work after suppressed calls, across threads, and in queued and synchronous modes.
+- Each process reads its own environment. Queued records follow the approved queue rule.
+- Measurements include live-check overhead on enabled and suppressed calls.
 - Silence, explicit false values, module-name collisions, and setting priority follow the documented rules.
 - All required configuration formats produce equivalent settings and merge results.
 - Threads and supported process models produce complete, non-duplicated events during controlled shutdown.
@@ -272,7 +325,9 @@ Keep implementation outside this initial planning change.
 
 ## Decisions before implementation
 
-Confirm the silence scope and whether explicit API settings may override environment controls.
+Confirm the silence scope and whether silence cancels records already in the queue.
+Keep live environment controls above file and API values at the same module scope.
+
 Approve the module-name encoding and configuration discovery policy.
 Select a configuration library after the comparison, including its secure XML path.
 Choose how Rich content passes through the queue and how the library manages its Loguru handlers.
@@ -303,3 +358,5 @@ Choose a license before public distribution. Check name availability before repl
 [11] https://rich.readthedocs.io/en/stable/console.html
 
 [12] https://beartype.readthedocs.io/en/latest/api_decor
+
+[13] https://docs.python.org/3/library/os.html
