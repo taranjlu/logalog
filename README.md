@@ -5,8 +5,8 @@ It uses Loguru, Rich, and Beartype.
 
 ## Status
 
-The first core layer provides typed logging methods and Rich output on stderr.
-Delivery is synchronous. Queue support comes next.
+The first two core layers provide typed logging methods and Rich output on stderr.
+Delivery uses Loguru's queue by default. A synchronous override is available.
 No package release or public repository exists as part of this setup.
 
 ## Usage
@@ -23,13 +23,35 @@ except ValueError:
     LOG.exception("Task failed")
 ```
 
+Call `LOG.configure(synchronous=True)` before the first log call to write in the
+calling thread. Call `LOG.flush()` to wait for queued records. Call
+`LOG.shutdown()` after workers stop to flush records and close the owner handler.
+Shutdown is final. Later log calls raise `RuntimeError`.
+The shared logger also flushes at normal interpreter exit, including an unhandled exception.
+
+For multiprocessing, set the process start method first. Then call
+`LOG.initialize()` in the owner before processes start. Serialization also initializes an unused logger.
+Pass `LOG` to each worker
+and call `initialize_worker(owner)` before the worker logs. Each worker must call
+`LOG.flush()` before it exits. Forced process termination can lose queued records.
+
+Keep the owner alive until all workers finish.
+For `fork`, start workers before application threads. Loguru manages its own queue-thread locks across fork.
+The Linux tests cover `fork`, `spawn`, and `forkserver`.
+
 Use `trace`, `debug`, `info`, `success`, `warning`, `error`, or `critical` for messages.
 Use `exception` for an error with the current traceback.
 Use `LOG.log("WARNING", "Message")` to select a severity by name.
 
 Messages must be strings. Arguments use Loguru format syntax.
 Named arguments also remain in the Loguru record.
+
+Queued fields must support Python pickle serialization. Serialization failures raise in the calling thread.
+Queued sink failures use Loguru error output and do not raise in the calling thread.
+Flush waits for delivery attempts. It does not guarantee that a failed destination received the records.
+
 Rich treats message text as literal text, not markup.
+Queued tracebacks use plain traceback text inside the Rich message. Synchronous tracebacks retain Rich formatting.
 Tracebacks exclude local variable values, but exception messages and source lines can still contain sensitive data.
 
 Import produces no output and starts no worker thread.

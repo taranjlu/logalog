@@ -22,10 +22,9 @@ if TYPE_CHECKING:
 @pytest.fixture
 def log() -> Iterator[Logger]:
     """Give each test an independent logger and close its handlers afterward."""
-    instance = Logger()
+    instance = Logger(synchronous=True)
     yield instance
-    if instance._backend is not None:
-        instance._backend.remove()
+    instance.shutdown()
 
 
 @pytest.mark.parametrize(

@@ -1,9 +1,12 @@
 """Isolate the Loguru compatibility boundary and Rich output."""
 
 from collections.abc import Mapping
+from traceback import TracebackException
+from typing import cast
 
 from beartype import beartype
 from loguru._logger import Core, Logger
+from loguru._recattrs import RecordException
 from rich.console import Console
 from rich.logging import RichHandler
 
@@ -15,8 +18,28 @@ def _message_format(record: Mapping[str, object]) -> str:
 
 
 @beartype
-def create_backend() -> Logger:
-    """Create a private synchronous logger with one reusable stderr console.
+def _preserve_queued_traceback(record: dict[str, object]) -> None:
+    """Render a traceback before Loguru removes it during queue pickling."""
+    exception = cast(RecordException | None, record["exception"])
+    if exception is None or exception.type is None:
+        return
+    record["message"] = "{}\n{}".format(
+        record["message"],
+        "".join(
+            TracebackException(exception.type, exception.value, exception.traceback).format()
+        ).rstrip(),
+    )
+    record["exception"] = None
+
+
+@beartype
+def create_backend(*, enqueue: bool = True) -> Logger:
+    """Create a private logger with one reusable stderr console.
+
+    Parameters
+    ----------
+    enqueue : bool, default=True
+        Send records through Loguru's multiprocessing queue.
 
     Notes
     -----
@@ -36,6 +59,8 @@ def create_backend() -> Logger:
         patchers=[],
         extra={},
     )
+    if enqueue:
+        backend = backend.patch(_preserve_queued_traceback)
     console = Console(stderr=True, markup=False, highlight=False)
     handler = RichHandler(
         console=console,
@@ -52,7 +77,7 @@ def create_backend() -> Logger:
         level=0,
         format=_message_format,
         colorize=False,
-        enqueue=False,
+        enqueue=enqueue,
         backtrace=False,
         diagnose=False,
         catch=False,

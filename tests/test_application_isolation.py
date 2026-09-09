@@ -26,6 +26,7 @@ standard_handler = logging.StreamHandler(standard_stream)
 root.addHandler(standard_handler)
 from malideiter import LOG
 LOG.info('library-only-marker')
+LOG.shutdown()
 logger.info('application-only-marker')
 root.warning('standard-only-marker')
 assert standard_stream.getvalue() == 'standard-only-marker\n'

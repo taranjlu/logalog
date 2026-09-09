@@ -1,6 +1,6 @@
 # malideiter build checklist
 
-Status: Chunk 1 is complete. Later chunks remain planned work.
+Status: Chunks 1 and 2 are complete. Later chunks remain planned work.
 
 Use this checklist for execution order. Keep the [longer plan](plan.md) as reference material.
 Build one working layer at a time. Resolve only the decisions that the current layer needs.
@@ -20,13 +20,18 @@ The same tests pass against the installed wheel outside the checkout.
 Formatting, lint, types, package builds, and independent review pass.
 No stdout console is necessary for this layer.
 
-## 2. Queued delivery and shutdown
+## 2. Queued delivery and shutdown — complete
 
-- [ ] Make queued delivery the default. Keep the synchronous override.
-- [ ] Add queue ownership, worker initialization, flush, and shutdown behavior.
-- [ ] Test threads and supported process start methods for lost or duplicate records and shutdown failures.
+- [x] Make queued delivery the default. Keep the synchronous override.
+- [x] Add queue ownership, worker initialization, flush, and shutdown behavior.
+- [x] Test threads and supported process start methods for lost or duplicate records and shutdown failures.
 
 Result: the core delivery system works before more output features enter the library.
+
+Verification: 44 tests pass with 100% line and branch coverage on Python 3.11 through 3.14.
+Linux tests cover `fork`, `spawn`, and `forkserver`, including owner-only output and worker exceptions.
+Tests also cover concurrent shutdown, normal interpreter exit, sink failures, and serialization failures.
+The installed wheel passes the same full suite outside the checkout.
 
 ## 3. Live logging controls
 
