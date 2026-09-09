@@ -1,4 +1,7 @@
-"""Provide the package namespace for malideiter.
+"""Expose the shared, typed logging interface."""
 
-The logging API is not implemented yet.
-"""
+from ._logger import Logger as _Logger
+
+__all__ = ["LOG"]
+
+LOG = _Logger()

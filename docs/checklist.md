@@ -1,19 +1,24 @@
 # malideiter build checklist
 
-Status: Proposed. Wait for approval before starting chunk 1.
+Status: Chunk 1 is complete. Later chunks remain planned work.
 
 Use this checklist for execution order. Keep the [longer plan](plan.md) as reference material.
 Build one working layer at a time. Resolve only the decisions that the current layer needs.
 
-## 1. Core logging path — first
+## 1. Core logging path — complete
 
-- [ ] Add Loguru, Rich, and Beartype, with typed `LOG` methods.
-- [ ] Connect `LOG` to Loguru and reusable Rich consoles. Default to stderr.
-- [ ] Preserve message data and caller information without a large custom event framework.
-- [ ] Test ordinary messages, exceptions, runtime type checks, and safe handler setup.
+- [x] Add Loguru, Rich, and Beartype, with typed `LOG` methods.
+- [x] Connect `LOG` to Loguru and one reusable Rich console on stderr.
+- [x] Preserve message data and caller information without a large custom event framework.
+- [x] Test ordinary messages, exceptions, runtime type checks, and safe handler setup.
 
 Result: `from malideiter import LOG` works. Messages appear once, and unrelated application handlers remain unchanged.
 Use synchronous delivery for this first layer. Chunk 2 establishes the queued default.
+
+Verification: 30 tests pass on Python 3.11 through 3.14.
+The same tests pass against the installed wheel outside the checkout.
+Formatting, lint, types, package builds, and independent review pass.
+No stdout console is necessary for this layer.
 
 ## 2. Queued delivery and shutdown
 
