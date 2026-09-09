@@ -1,6 +1,6 @@
 # malideiter build checklist
 
-Status: Chunks 1 through 3 are complete. Later chunks remain planned work.
+Status: Chunks 1 through 4 are complete. Later chunks remain planned work.
 
 Use this checklist for execution order. Keep the [longer plan](plan.md) as reference material.
 Build one working layer at a time. Resolve only the decisions that the current layer needs.
@@ -59,14 +59,25 @@ The fixed-decision baseline took 8.66 µs enabled and 1.57 µs suppressed.
 Each result is the median of three runs of 20,000 calls.
 Two calls with two environment updates took 22.35 µs. Measurements exclude Rich rendering and terminal I/O.
 
-## 4. File destinations
+## 4. File destinations — complete
 
-- [ ] Add text and JSON Lines files alongside console output.
-- [ ] Use native Loguru rotation, retention, compression, and file-opening options.
-- [ ] Test one writer per shared file, readable records, rotation, and failure handling.
+- [x] Add text and JSON Lines files alongside console output.
+- [x] Use native Loguru rotation, retention, compression, and file-opening options.
+- [x] Test one writer per shared file, readable records, rotation, and failure handling.
 
 Result: terminal and file destinations use the same event data and live controls.
 Defer MessagePack until this path works.
+
+Chunk 4 decisions: Configure a tuple of typed `FileDestination` values before
+initialization. Files rotate at 10 MB and retain five archives by default. Each
+configured path is unique. The owner creates all native sinks and queues. Workers use
+the owner's queues, so only the owner writes and rotates shared files.
+
+Verification: 90 tests pass with 100% line and branch coverage on Python 3.11 through
+3.14. The installed wheel passes the same suite. Tests cover text and JSON exception
+fields, console tracebacks, rotation, compression, file watching, startup cleanup,
+and owner-only writes across Linux `fork`, `spawn`, and `forkserver`.
+Formatting, lint, types, builds, mechanical writing checks, and independent review pass.
 
 ## 5. Configuration loading
 

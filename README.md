@@ -5,8 +5,8 @@ It uses Loguru, Rich, and Beartype.
 
 ## Status
 
-The first three core layers provide typed logging methods, Rich output on stderr,
-and live environment controls.
+The first four core layers provide typed logging methods, Rich output on stderr,
+live environment controls, and native text and JSON Lines files.
 Delivery uses Loguru's queue by default. A synchronous override is available.
 No package release or public repository exists as part of this setup.
 
@@ -29,6 +29,30 @@ Call `LOG.configure(synchronous=True)` before the first log call to write in the
 calling thread. Use `LOG.configure(prefix="MY_APP")` to replace the default
 `MALIDEITER` environment prefix. Call `LOG.flush()` to wait for queued records. Call
 `LOG.shutdown()` after workers stop to flush records and close the owner handler.
+
+Configure files before the first log call. Each destination uses Loguru's native file
+management. The default rotates at 10 MB and retains five archives.
+
+```python
+from malideiter import FileDestination, LOG
+
+LOG.configure(
+    files=(
+        FileDestination("logs/app.log", compression="gz"),
+        FileDestination("logs/app.jsonl", kind="json", delay=True),
+    )
+)
+```
+
+Set `rotation=None` or `retention=None` to disable that option. The API also accepts
+Loguru size and time strings, archive counts or ages, `watch`, append or write mode,
+encoding, and buffering. Each path must be unique in one configuration.
+Do not use overlapping filename patterns or share files between independent owners.
+Use `mode="w"` only when you intend to discard an existing file.
+
+Text files contain plain, unwrapped records. JSON Lines uses Loguru's native `text`
+and `record` fields. Both formats retain exception details without local variable values.
+Initial setup failures close earlier sinks, but can leave empty files.
 
 Shutdown is final. Later log calls raise `RuntimeError`.
 The shared logger also flushes at normal interpreter exit, including an unhandled exception.
@@ -82,7 +106,7 @@ Accepted Boolean values are `1`, `true`, `yes`, and `on`, or `0`, `false`, `no`,
 and `off`. Case and outer whitespace do not matter. An invalid applicable value
 raises `ConfigurationError` before queue submission.
 
-File output, configuration loading, and advanced Rich content come in later layers.
+Configuration loading and advanced Rich content come in later layers.
 Do not use Python `-O` or `-OO`. Beartype disables runtime checks in those modes.
 
 ## Plan

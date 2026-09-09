@@ -3,14 +3,15 @@
 import re
 from functools import cache
 from inspect import currentframe
-from os import environ, getpid
+from os import environ, fspath, getpid
+from os.path import normcase, realpath
 from threading import RLock
 from typing import Literal, cast
 
 from beartype import beartype
 from loguru._logger import Logger as LoguruLogger
 
-from ._backend import create_backend
+from ._backend import FileDestination, create_backend
 
 Level = Literal["TRACE", "DEBUG", "VERBOSE", "INFO", "SUCCESS", "WARNING", "ERROR", "CRITICAL"]
 Control = Literal["verbose", "debug", "silent"]
@@ -103,16 +104,41 @@ def _controls(module: str, prefix: str) -> tuple[bool, bool, bool]:
 
 
 @beartype
+def _file_path(destination: FileDestination) -> str:
+    """Check each destination type and resolve its path for duplicate detection."""
+    path = fspath(destination.path)
+    if not path:
+        raise ValueError("File path must not be empty")
+    return normcase(realpath(path))
+
+
+@beartype
+def _validate_files(files: tuple[FileDestination, ...]) -> None:
+    """Reject empty and repeated paths before backend setup."""
+    paths = [_file_path(destination) for destination in files]
+    if len(paths) != len(set(paths)):
+        raise ValueError("File destination paths must be unique")
+
+
+@beartype
 class Logger:
     """Send typed log calls to an isolated, lazily initialized backend."""
 
-    def __init__(self, *, synchronous: bool = False, prefix: str = "MALIDEITER") -> None:
+    def __init__(
+        self,
+        *,
+        synchronous: bool = False,
+        prefix: str = "MALIDEITER",
+        files: tuple[FileDestination, ...] = (),
+    ) -> None:
         """Keep import free of output and worker threads."""
         _validate("module", prefix)
+        _validate_files(files)
         self._backend: LoguruLogger | None = None
         self._lock = RLock()
         self._synchronous = synchronous
         self._prefix = prefix
+        self._files = files
         self._owner_pid: int | None = None
         self._closed = False
 
@@ -122,11 +148,17 @@ class Logger:
             if self._closed:
                 raise RuntimeError("Logger is shut down")
             if self._backend is None:
-                self._backend = create_backend(enqueue=not self._synchronous)
+                self._backend = create_backend(enqueue=not self._synchronous, files=self._files)
                 self._owner_pid = getpid()
             return self._backend
 
-    def configure(self, *, synchronous: bool = False, prefix: str = "MALIDEITER") -> None:
+    def configure(
+        self,
+        *,
+        synchronous: bool = False,
+        prefix: str = "MALIDEITER",
+        files: tuple[FileDestination, ...] = (),
+    ) -> None:
         """Select delivery before the first log call.
 
         Parameters
@@ -135,13 +167,17 @@ class Logger:
             Write in the calling thread instead of through the Loguru queue.
         prefix : str, default="MALIDEITER"
             Uppercase prefix for live control environment variables.
+        files : tuple[FileDestination, ...], default=()
+            Text and JSON Lines destinations.
         """
         _validate("module", prefix)
+        _validate_files(files)
         with self._lock:
             if self._backend is not None or self._closed:
                 raise RuntimeError("Logger configuration is already fixed")
             self._synchronous = synchronous
             self._prefix = prefix
+            self._files = files
 
     def initialize(self) -> None:
         """Create the owner queue before workers start."""
@@ -163,6 +199,7 @@ class Logger:
         self._lock = RLock()
         self._synchronous = False
         self._prefix = cast(str, state["prefix"])
+        self._files = ()
         self._owner_pid = cast(int | None, state["owner_pid"])
         self._closed = False
 
@@ -193,6 +230,7 @@ class Logger:
             self._backend = owner._get_backend()
             self._owner_pid = owner._owner_pid
             self._prefix = owner._prefix
+            self._files = ()
 
     def _emit(
         self,

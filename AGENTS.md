@@ -6,7 +6,7 @@ Repository code, tests, and accepted decisions define the project behavior.
 
 ## Scope
 
-This repository contains the first logging layer.
+This repository contains a Python logging library.
 Use `docs/checklist.md` to distinguish implemented behavior from planned features.
 Do not copy device code or release machinery from another project.
 Add dependencies when project code needs them.

@@ -4,10 +4,17 @@ from atexit import register
 
 from beartype import beartype
 
+from ._backend import FileDestination
 from ._logger import ConfigurationError, environment_names
 from ._logger import Logger as _Logger
 
-__all__ = ["LOG", "ConfigurationError", "environment_names", "initialize_worker"]
+__all__ = [
+    "LOG",
+    "ConfigurationError",
+    "FileDestination",
+    "environment_names",
+    "initialize_worker",
+]
 
 LOG = _Logger()
 register(LOG.shutdown)
