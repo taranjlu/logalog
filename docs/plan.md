@@ -21,74 +21,100 @@ LOG.verbose("Additional progress detail")
 These examples describe the target API. They do not work in the skeleton.
 Utility names and configuration details below remain proposals.
 
+## Requirements and proposals
+
+The requested design includes:
+
+- Loguru for logging configuration and delivery.
+- Rich for human-readable messages, with separate structured output.
+- Beartype for runtime type checking within the library.
+- Queued output by default and a synchronous override.
+- Independent verbose and debug controls, plus global and per-module silence controls.
+- Configuration from `pyproject.toml`, TOML, YAML, JSON, and XML, with defined merge rules.
+- One imported `LOG` object for normal use.
+- Utilities for nested sections, function logs, elapsed time, and subprocess command display.
+
+This plan proposes defaults where the request leaves behavior open.
+The main proposals concern startup, silence, configuration priority, module names, and output formats.
+Approve those defaults before implementation. A proposal is not an accepted decision.
+
 ## Starting point
 
-The skeleton uses the reference project's `src/` layout, `uv`, Ruff, Ty, pytest, and thin `just` commands.
+The skeleton uses the reference project's `src/` layout, `uv`, Ruff, Ty, pytest, and `just` commands that run the development tools.
 It includes a type marker and a test for silent import without new worker threads.
 It does not include runtime dependencies, a configuration framework, or release automation.
 Python 3.11 is the initial minimum. Verify Python 3.11 through 3.14 before claiming that full support range.
 
 ## Core design
 
-### Public API and ownership
+### Public API and existing application logs
 
 Export one stable `LOG` object. Do not make callers create a logger for each module.
-Preserve the caller's full module name, source location, and bound fields through wrappers.
-Provide typed methods for normal severity levels and an independent verbose channel.
+Preserve the caller's full module name, source location, and attached data when a helper forwards a log call.
+Provide typed methods for normal severity levels, such as info, warning, and error.
+Treat verbose messages as a separate category.
 Keep the supported API explicit rather than promise every Loguru method.
 
-Propose lazy initialization on the first log call, with Rich output to standard error.
+Proposed default: initialize logging on the first log call. Send Rich output to standard error (`stderr`), not application standard output (`stdout`).
 Keep import silent. Do not start a queue worker or search for configuration files during import.
+
 Allow explicit configuration before first use, including an application-specific environment prefix.
 Default the prefix to `MALIDEITER`. Do not infer it from whichever module imports first.
 
 Loguru shares one logger, and its documentation warns about handler changes from libraries.[2]
-Prototype handler ownership before implementing the public API.
-Do not remove host handlers, duplicate output, or capture unrelated logs by default.
-Make standard-library logging interception a later, explicit integration.
+A handler connects a logger to an output destination.
+Test how the library can manage its own handlers without changing the application's handlers.
+Do not remove application handlers, duplicate output, or capture unrelated logs by default.
+Defer the capture of standard-library logs. Add that integration only through an explicit option.
 
 ### Queued and synchronous output
 
 Use Loguru's `enqueue=True` as the default delivery model.
-Keep calls such as `LOG.info()` synchronous at the call site. They submit records for background output.
+Calls such as `LOG.info()` submit records to a queue. A background worker writes those records to the output destination.
+Callers do not use `await LOG.info()`.
+
+A sink is an output destination, such as a file or terminal.
 Loguru distinguishes queued handlers from coroutine sinks and provides `complete()` for shutdown.[1]
 Support ordinary logging without an asyncio event loop.
 Provide a configuration override for direct, synchronous output with `enqueue=False`.
 
-Verify queue ownership, child initialization, and shutdown under supported process start methods.
+Define which process creates and manages the queue. Test child-process setup and shutdown for each supported process start method.
 Include `spawn`, `forkserver`, and `fork` where the platform provides them.
 An independently started process needs an explicit connection or initialization path.
 Do not claim that an import alone creates a shared queue across unrelated processes.
 
-Define flush, close, repeated configuration, sink failure, and overload behavior.
-Measure producer delay under load. A background sink does not guarantee a bounded call duration.
+Define how to finish queued output before shutdown, close handlers, and change configuration.
+Define behavior when an output destination fails or cannot keep pace with incoming messages.
+Measure log-call delays under load. Queued output does not guarantee that every call returns immediately.
 Document normal-shutdown guarantees and possible loss after forced termination.
-Do not promise a total event order across producers.
+Do not promise one exact event order across all threads and processes.
 
-### Rich and structured records
+### Human-readable and structured output
 
 Use Rich for every human-readable output path, including plain terminal output without color.
 Support wrapped text, multiline messages, tables, code blocks, and exceptions.
 Rich's `Console` handles renderable objects and terminal properties.[11]
 `RichHandler` provides text logging and traceback support.[3]
-Test arbitrary object transport separately.
+Test whether custom Rich objects can pass through the queue.
 
-Keep event data separate from its terminal representation.
-Prototype direct Rich objects and a small serializable content description before choosing the transport contract.
-Do not assume that custom renderable objects survive queue serialization.
-Define when the logger captures mutable content, and test changes after the log call.
+Keep event data separate from its terminal appearance.
+Compare two queue payloads: Rich objects and a data description from which the output worker builds Rich objects.
+Serialization converts a payload into a form that can pass between processes. Test which payloads support this conversion.
+
+Define when the logger copies message data. Test objects that change after the log call.
 Render at the output destination where practical so wrapping uses its width.
 
-Give each event stable fields for severity, channel, message, module, context, and exception data.
-Use separate output adapters for Rich, JSON Lines, and optional MessagePack.
+Give each event stable fields for severity, message category, text, module, context, and exception data.
+Propose separate output writers for Rich, JSON Lines, and optional MessagePack.
+JSON Lines stores one JSON record per line.
 Keep structured output free of ANSI sequences and terminal markup.
 
 `msgspec` is an encoder and validation library, not a file format. It supports JSON and MessagePack.[9]
 Assess it after the event schema exists. Do not add a second schema framework without a clear need.
 
 Treat ordinary strings as literal text. Accept markup only through an explicit option. Escape untrusted content.
-Keep exception locals and automatic argument capture off by default.
-Redact sensitive fields before queue submission and output to any destination.
+Do not include local variables in exception reports or capture function arguments by default.
+Remove or mask sensitive fields before they enter the queue or any output destination.
 
 ### Independent environment controls
 
@@ -98,9 +124,9 @@ Support these global environment variables:
 - `<prefix>_DEBUG`
 - `<prefix>_SILENT`
 
-Use independent Boolean controls, not a severity threshold.
+Use independent on/off controls, not one minimum severity level.
 Loguru supports callable filters for each sink.[1]
-Set its minimum sink level to admit records before the independent filter runs.
+Set each sink to accept the relevant levels, then use the filter to select verbose and debug messages independently.
 
 Proposed behavior:
 
@@ -125,9 +151,10 @@ Provide a public helper that accepts a module name and returns every exact envir
 Also expose effective settings and their sources without revealing secrets.
 Return names without module import or earlier log output.
 
-Propose per-setting resolution from the global value through parent modules to the exact module.
-An unset module value inherits. Explicit `false` can disable an inherited verbose or debug value.
-Silence at a parent scope remains effective for its children.
+Proposed module rule: start with global settings, then apply parent-module settings, then exact-module settings.
+For example, `myapp.worker` inherits settings from `myapp` unless it has an explicit override.
+An unset value inherits. Explicit `false` can disable inherited verbose or debug output.
+A child module cannot cancel silence from a parent module.
 Define accepted Boolean strings and reject invalid values with a named configuration error.
 
 ## Configuration research
@@ -157,9 +184,19 @@ Do not build a general configuration framework.
 
 ### Proposed configuration rules
 
-- Apply defaults, then the selected `pyproject.toml` section, then explicit files in caller order.
-- Apply environment overrides after files and explicit API overrides last.
-- Resolve module inheritance within the resulting settings, then apply the silence rules.
+Load settings in this order. Later sources override earlier values at the same module scope:
+
+1. Built-in defaults.
+2. The selected `pyproject.toml` section.
+3. Explicit configuration files, in caller order.
+4. Environment variables.
+5. Explicit API settings.
+
+Then resolve module inheritance and apply the silence rules.
+A module-specific value takes priority over a global value, except where a silence rule prevents output.
+Confirm this interaction between source priority and module scope before implementation.
+
+Other rules:
 - Merge mappings recursively. Replace lists and scalar values by default.
 - Define deletion, null values, duplicate keys, and type conflicts explicitly.
 - Report the source file, setting path, and effective origin for errors.
@@ -170,12 +207,13 @@ Do not build a general configuration framework.
 
 ## Runtime type checking
 
-Use Beartype within library code. Limit instrumentation to this package.
+Use Beartype to check typed functions and methods within this library. Do not apply its checks to unrelated application packages.
 Prefer explicit decorators where they keep the boundary clear.
 If a package import hook is necessary, restrict its scope and make decoration failures fatal.
 
 Beartype's documentation describes sampled container checks by default and marks `BeartypeStrategy.On` as unimplemented.[12]
-Do not describe that behavior as exhaustive validation.
+A sampled check inspects selected container items, not every item.
+Do not describe it as a complete check of all data.
 Verify the pinned release with wrong arguments, return values, and nested container items.
 Use explicit validation where every configuration or event item must pass.
 
@@ -185,30 +223,30 @@ Measure runtime cost without disabling the required checks.
 
 ## Utility functions
 
-Add utilities after the event and lifecycle contracts are stable:
+Add utilities after the event format, output behavior, and shutdown rules are stable:
 
 - A section context manager with recursive indentation and optional elapsed time.
 - Function decorators that record entry, completion, failure, and optional elapsed time.
 - A subprocess command display helper that accepts an argument sequence and never executes it.
 
-Use task-local context, such as `contextvars`, rather than a shared indentation counter.
+Keep a separate section context for each concurrent task. Use `contextvars` rather than one shared indentation counter.
 Capture section depth, section identity, and parent identity in each event before queue submission.
 Keep structured depth fields as well as visual indentation.
 Restore context after exceptions and cancellation. Define context transfer to child tasks, threads, and processes.
 
-Use a monotonic performance clock for elapsed time.
+Measure elapsed time with a monotonic performance clock. This clock avoids changes to the system date and time.
 Preserve function metadata, return values, exceptions, and coroutine behavior.
 Do not consume generators or log function arguments automatically.
 Define generator support separately before claiming it.
 
-For command display, provide clear quoting, wrapping, working-directory context, and explicit redaction.
+For command display, quote and wrap arguments clearly. Show the working directory and mask fields that the caller marks as sensitive.
 Specify the display convention for each supported shell or platform.
 Do not imply that one quoted command string is portable across shells.
 
 ## Execution stages
 
-1. **Confirm the contracts.** Resolve the configuration choice, silence rules, module names, type-checking limits, and handler ownership.
-2. **Prototype the main risks.** Exercise Rich content across process queues, child initialization, shutdown, and strict configuration validation.
+1. **Test the main design risks.** Compare configuration libraries and test Rich payloads, process queues, shutdown, and runtime checks.
+2. **Approve the design choices.** Select the configuration library, silence rules, module names, type-checking limits, and handler rules.
 3. **Build the core.** Add typed `LOG` methods, Rich output, queued and synchronous modes, independent filters, and lifecycle controls.
 4. **Add configuration.** Implement the selected loader, each specified file format, module overrides, and settings discovery.
 5. **Add structured output and utilities.** Implement JSON Lines, assess MessagePack, then add sections, timers, decorators, and command display.
@@ -219,15 +257,15 @@ Keep implementation outside this initial planning change.
 
 ## Completion checks
 
-- One import supports ordinary use without application boilerplate.
+- One import supports ordinary use without extra setup code.
 - All verbose and debug combinations work globally and per module.
-- Silence, explicit false values, module collisions, and setting precedence follow the documented contract.
+- Silence, explicit false values, module-name collisions, and setting priority follow the documented rules.
 - All required configuration formats produce equivalent settings and merge results.
 - Threads and supported process models produce complete, non-duplicated events during controlled shutdown.
 - Concurrent sections keep separate context and restore it after failures.
 - Rich output wraps at narrow widths. Tables, code blocks, exceptions, and literal brackets remain readable.
 - JSON Lines and MessagePack decode independently and retain context without terminal formatting.
-- Type errors fail at the intended boundary. Tests cover nested invalid data, not only scalar arguments.
+- Invalid arguments fail before the affected operation starts. Invalid return values fail before they reach the caller. Test nested invalid data too.
 - Command display never executes a command or reveals fields marked for redaction.
 - Formatting, linting, type checks, tests, package builds, and isolated wheel checks pass.
 - Documentation passes the planned ASD-STE100 review without a false compliance claim.
@@ -237,8 +275,8 @@ Keep implementation outside this initial planning change.
 Confirm the silence scope and whether explicit API settings may override environment controls.
 Approve the module-name encoding and configuration discovery policy.
 Select a configuration library after the comparison, including its secure XML path.
-Resolve the Rich queue representation and Loguru handler ownership.
-Define exhaustive validation boundaries and the supported platform matrix.
+Choose how Rich content passes through the queue and how the library manages its Loguru handlers.
+Specify where every data item needs validation. Define the supported Python versions and operating systems.
 
 Choose a license before public distribution. Check name availability before replacing the code name or publishing.
 
