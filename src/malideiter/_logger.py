@@ -10,8 +10,10 @@ from typing import Literal, cast
 
 from beartype import beartype
 from loguru._logger import Logger as LoguruLogger
+from rich.console import Console, RenderableType
+from rich.text import Text
 
-from ._backend import FileDestination, create_backend
+from ._backend import _CONSOLE_ONLY, _RICH_PLAIN, _RICH_SNAPSHOT, FileDestination, create_backend
 from ._configuration import Configuration, ConfigurationError
 
 Level = Literal["TRACE", "DEBUG", "VERBOSE", "INFO", "SUCCESS", "WARNING", "ERROR", "CRITICAL"]
@@ -155,6 +157,7 @@ class Logger:
         self._module_defaults: dict[str, tuple[bool | None, bool | None, bool | None]] = {}
         self._owner_pid: int | None = None
         self._closed = False
+        self._renderer: Console | None = None
 
     def _get_backend(self) -> LoguruLogger:
         """Initialize the backend once, including during concurrent first use."""
@@ -232,6 +235,7 @@ class Logger:
         )
         self._owner_pid = cast(int | None, state["owner_pid"])
         self._closed = False
+        self._renderer = None
 
     def flush(self) -> None:
         """Wait until Loguru delivers all queued records."""
@@ -267,7 +271,7 @@ class Logger:
     def _emit(
         self,
         level: Level,
-        message: str,
+        message: RenderableType,
         args: tuple[object, ...],
         fields: dict[str, object],
         *,
@@ -298,18 +302,47 @@ class Logger:
             if silent or (level == "VERBOSE" and not verbose) or (level == "DEBUG" and not debug):
                 return
 
+            if not isinstance(message, str):
+                if args:
+                    raise ValueError("Rich renderables do not accept format arguments")
+                if self._renderer is None:
+                    self._renderer = Console(stderr=True, markup=False, highlight=False)
+                snapshot = Text.assemble(
+                    *(
+                        (segment.text, segment.style) if segment.style else segment.text
+                        for segment in self._renderer.render(message)
+                    )
+                )
+                message = snapshot.plain.removesuffix("\n")
+                fields[_RICH_SNAPSHOT] = snapshot
             backend = self._get_backend()
+            if _RICH_SNAPSHOT in fields:
+                backend.bind(**fields).opt(depth=depth, exception=exception).log(level, message)
+                fields.pop(_RICH_SNAPSHOT)
+                fields[_RICH_PLAIN] = True
+                backend.bind(**fields).opt(depth=depth, exception=exception).log(level, message)
+                return
+            if exception:
+                if args or fields:
+                    message = message.format(*args, **fields)
+                backend.bind(**fields, **{_CONSOLE_ONLY: True}).opt(
+                    depth=depth, exception=True
+                ).log(level, message)
+                backend.bind(**fields, **{_RICH_PLAIN: True}).opt(depth=depth, exception=True).log(
+                    level, message
+                )
+                return
             backend.opt(depth=depth, exception=exception).log(level, message, *args, **fields)
 
-    def log(self, level: Level, message: str, *args: object, **fields: object) -> None:
+    def log(self, level: Level, message: RenderableType, *args: object, **fields: object) -> None:
         """Log a message at a supported severity.
 
         Parameters
         ----------
         level : Level
             Standard Loguru severity name.
-        message : str
-            Literal text, or a format template when arguments are supplied.
+        message : RenderableType
+            Literal text, a format template, or a Rich renderable.
         *args : object
             Positional format arguments.
         **fields : object
@@ -317,38 +350,38 @@ class Logger:
         """
         self._emit(level, message, args, fields)
 
-    def trace(self, message: str, *args: object, **fields: object) -> None:
+    def trace(self, message: RenderableType, *args: object, **fields: object) -> None:
         """Log a trace message."""
         self._emit("TRACE", message, args, fields)
 
-    def debug(self, message: str, *args: object, **fields: object) -> None:
+    def debug(self, message: RenderableType, *args: object, **fields: object) -> None:
         """Log a debug message."""
         self._emit("DEBUG", message, args, fields)
 
-    def verbose(self, message: str, *args: object, **fields: object) -> None:
+    def verbose(self, message: RenderableType, *args: object, **fields: object) -> None:
         """Log a verbose message."""
         self._emit("VERBOSE", message, args, fields)
 
-    def info(self, message: str, *args: object, **fields: object) -> None:
+    def info(self, message: RenderableType, *args: object, **fields: object) -> None:
         """Log an information message."""
         self._emit("INFO", message, args, fields)
 
-    def success(self, message: str, *args: object, **fields: object) -> None:
+    def success(self, message: RenderableType, *args: object, **fields: object) -> None:
         """Log a success message."""
         self._emit("SUCCESS", message, args, fields)
 
-    def warning(self, message: str, *args: object, **fields: object) -> None:
+    def warning(self, message: RenderableType, *args: object, **fields: object) -> None:
         """Log a warning message."""
         self._emit("WARNING", message, args, fields)
 
-    def error(self, message: str, *args: object, **fields: object) -> None:
+    def error(self, message: RenderableType, *args: object, **fields: object) -> None:
         """Log an error message without an automatic traceback."""
         self._emit("ERROR", message, args, fields)
 
-    def critical(self, message: str, *args: object, **fields: object) -> None:
+    def critical(self, message: RenderableType, *args: object, **fields: object) -> None:
         """Log a critical message."""
         self._emit("CRITICAL", message, args, fields)
 
-    def exception(self, message: str, *args: object, **fields: object) -> None:
+    def exception(self, message: RenderableType, *args: object, **fields: object) -> None:
         """Log an error with the currently handled exception, without locals."""
         self._emit("ERROR", message, args, fields, exception=True)

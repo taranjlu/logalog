@@ -2,6 +2,8 @@
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from functools import partial
+from logging import LogRecord
 from os import PathLike
 from traceback import TracebackException
 from typing import Literal, cast
@@ -9,8 +11,22 @@ from typing import Literal, cast
 from beartype import beartype
 from loguru._logger import Core, Logger
 from loguru._recattrs import RecordException
-from rich.console import Console
+from rich.console import Console, ConsoleRenderable
 from rich.logging import RichHandler
+from rich.text import Text
+
+_RICH_SNAPSHOT = "__malideiter_rich_snapshot__"
+_RICH_PLAIN = "__malideiter_rich_plain__"
+_CONSOLE_ONLY = "__malideiter_console_only__"
+
+
+class _SnapshotHandler(RichHandler):
+    """Use a producer-rendered Rich snapshot when one is present."""
+
+    def render_message(self, record: LogRecord, message: str) -> ConsoleRenderable:
+        """Return the accepted snapshot without parsing message markup."""
+        snapshot = cast(dict[str, object], record.__dict__["extra"]).get(_RICH_SNAPSHOT)
+        return snapshot if isinstance(snapshot, Text) else super().render_message(record, message)
 
 
 @beartype
@@ -69,14 +85,32 @@ def _preserve_queued_traceback(record: dict[str, object]) -> bool:
     exception = cast(RecordException | None, record["exception"])
     if exception is None or exception.type is None:
         return True
-    record["message"] = "{}\n{}".format(
-        record["message"],
-        "".join(
-            TracebackException(exception.type, exception.value, exception.traceback).format()
-        ).rstrip(),
-    )
+    traceback = "".join(
+        TracebackException(exception.type, exception.value, exception.traceback).format()
+    ).rstrip()
+    record["message"] = f"{record['message']}\n{traceback}"
+    snapshot = cast(dict[str, object], record["extra"]).get(_RICH_SNAPSHOT)
+    if isinstance(snapshot, Text):
+        snapshot.append(f"\n{traceback}")
     record["exception"] = None
     return True
+
+
+def _plain_record(record: dict[str, object]) -> bool:
+    """Accept only plain records in native file destinations."""
+    extra = cast(dict[str, object], record["extra"])
+    if _RICH_SNAPSHOT in extra or _CONSOLE_ONLY in extra:
+        return False
+    extra.pop(_RICH_PLAIN, None)
+    return True
+
+
+@beartype
+def _console_record(record: dict[str, object], *, enqueue: bool) -> bool:
+    """Accept console records and prepare queued tracebacks."""
+    if _RICH_PLAIN in cast(dict[str, object], record["extra"]):
+        return False
+    return _preserve_queued_traceback(record) if enqueue else True
 
 
 @beartype
@@ -110,6 +144,28 @@ def create_backend(*, enqueue: bool = True, files: Sequence[FileDestination] = (
     )
     backend.level("VERBOSE", no=15, color="<blue>", icon="")
     try:
+        console = Console(stderr=True, markup=False, highlight=False)
+        handler = _SnapshotHandler(
+            console=console,
+            markup=False,
+            highlighter=None,
+            rich_tracebacks=True,
+            tracebacks_show_locals=False,
+            tracebacks_extra_lines=0,
+            enable_link_path=False,
+            keywords=[],
+        )
+        backend.add(
+            handler,
+            level=0,
+            format=_message_format,
+            colorize=False,
+            enqueue=enqueue,
+            backtrace=False,
+            diagnose=False,
+            catch=False,
+            filter=partial(_console_record, enqueue=enqueue),
+        )
         for destination in files:
             backend.add(
                 destination.path,
@@ -132,29 +188,8 @@ def create_backend(*, enqueue: bool = True, files: Sequence[FileDestination] = (
                 mode=destination.mode,
                 encoding=destination.encoding,
                 buffering=destination.buffering,
+                filter=_plain_record,
             )
-        console = Console(stderr=True, markup=False, highlight=False)
-        handler = RichHandler(
-            console=console,
-            markup=False,
-            highlighter=None,
-            rich_tracebacks=True,
-            tracebacks_show_locals=False,
-            tracebacks_extra_lines=0,
-            enable_link_path=False,
-            keywords=[],
-        )
-        backend.add(
-            handler,
-            level=0,
-            format=_message_format,
-            colorize=False,
-            enqueue=enqueue,
-            backtrace=False,
-            diagnose=False,
-            catch=False,
-            filter=_preserve_queued_traceback if enqueue else None,
-        )
     except BaseException:
         backend.remove()
         raise

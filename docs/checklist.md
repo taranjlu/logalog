@@ -1,6 +1,6 @@
 # malideiter build checklist
 
-Status: Chunks 1 through 5 are complete. Later chunks remain planned work.
+Status: Chunks 1 through 6 are complete. Chunk 7 remains planned work.
 
 Use this checklist for execution order. Keep the [longer plan](plan.md) as reference material.
 Build one working layer at a time. Resolve only the decisions that the current layer needs.
@@ -95,13 +95,27 @@ defaults, live overrides, source errors, file-list replacement, and fixed path o
 Formatting, lint, types, builds, mechanical writing checks, and independent review pass.
 The runtime dependency audit found no known vulnerabilities.
 
-## 6. Rich content and optional encoding
+## 6. Rich content and optional encoding — complete
 
-- [ ] Add tables, code blocks, multiline layouts, and wrapping.
-- [ ] Test content across queues, terminals, text files, and structured output.
-- [ ] Assess MessagePack through `msgspec`. Add it only after its file and shutdown behavior passes tests.
+- [x] Add tables, code blocks, multiline layouts, and wrapping.
+- [x] Test content across queues, terminals, text files, and structured output.
+- [x] Assess MessagePack. Defer it because native file management is not available.
 
 Result: advanced content uses the established delivery and destination layers.
+
+Chunk 6 decisions: Render each accepted Rich object in the producer before queue
+submission. Send the styled snapshot to the Rich console. Send its plain text to native
+text and JSON Lines sinks. This rule prevents later mutation and supports Rich objects
+that Python cannot pickle. Live controls suppress records before rendering.
+
+MessagePack remains deferred. A disposable Loguru 0.7.3 test confirmed that callable
+binary sinks reject `rotation`, `retention`, and `compression`. A native path sink writes
+text and cannot write `msgspec` bytes. Supporting MessagePack with these guarantees
+would require custom binary file rotation, retention, and compression. This design is
+outside the file-ownership rule. A host test passed the `msgspec` encoding round trip
+and confirmed the native sink restrictions in both delivery modes. Add MessagePack only if Loguru adds
+native binary path encoding or another small integration keeps all native file and
+shutdown guarantees.
 
 ## 7. Logging utilities
 

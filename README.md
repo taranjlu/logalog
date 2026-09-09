@@ -5,7 +5,7 @@ It uses Loguru, Rich, and Beartype.
 
 ## Status
 
-The first five layers provide typed logging, Rich stderr output, and live environment controls.
+The first six layers provide typed logging, Rich stderr output, and live environment controls.
 They also provide text and JSON Lines files and explicit configuration loading.
 Delivery uses Loguru's queue by default. A synchronous override is available.
 No package release or public repository exists as part of this setup.
@@ -22,8 +22,29 @@ LOG.verbose("Worker is still active")
 try:
     raise ValueError("Invalid task")
 except ValueError:
-    LOG.exception("Task failed")
+LOG.exception("Task failed")
 ```
+
+The same methods accept Rich renderables. The logger supports tables, syntax blocks,
+text, and multiline groups. It renders each accepted object before queue submission.
+This action gives the event a stable snapshot and supports mutable or non-pickleable
+renderables. Rich format arguments are not accepted. Add fields by keyword.
+
+```python
+from rich.syntax import Syntax
+from rich.table import Table
+
+table = Table(title="Tasks")
+table.add_column("State", style="green")
+table.add_row("complete")
+LOG.info(table, task_id=17)
+LOG.info(Syntax("value = '{literal}'", "python"))
+```
+
+The console keeps Rich styles and wraps at the producer console width. Text files get
+plain readable output. JSON records contain the same plain message and user fields.
+They do not contain ANSI sequences or private Rich objects. Suppressed events do not
+render their content.
 
 Call `LOG.configure(synchronous=True)` before the first log call to write in the
 calling thread. Use `LOG.configure(prefix="MY_APP")` to replace the default
@@ -104,8 +125,8 @@ for messages.
 Use `exception` for an error with the current traceback.
 Use `LOG.log("WARNING", "Message")` to select a severity by name.
 
-Messages must be strings. Arguments use Loguru format syntax.
-Named arguments also remain in the Loguru record.
+String arguments use Loguru format syntax. Strings stay literal when no arguments are
+present. Named arguments also remain in the Loguru record.
 
 Queued fields must support Python pickle serialization. Serialization failures raise in the calling thread.
 Queued sink failures use Loguru error output and do not raise in the calling thread.
@@ -138,7 +159,6 @@ Accepted Boolean values are `1`, `true`, `yes`, and `on`, or `0`, `false`, `no`,
 and `off`. Case and outer whitespace do not matter. An invalid applicable value
 raises `ConfigurationError` before queue submission.
 
-Advanced Rich content comes in a later layer.
 Do not use Python `-O` or `-OO`. Beartype disables runtime checks in those modes.
 
 ## Plan
