@@ -34,7 +34,7 @@ The requested design includes:
 - Independent verbose and debug controls, plus a separate silence control.
 - A global environment variable and an automatically generated per-module variable for each of the three controls.
 - Live environment checks on every log call, without restart, polling delay, or a reload command.
-- Configuration from `pyproject.toml`, TOML, YAML, JSON, and XML, with defined merge rules.
+- Configuration from `pyproject.toml`, TOML, YAML, and JSON, with defined merge rules.
 - One imported `LOG` object for normal use.
 - Utilities for nested sections, function logs, elapsed time, and subprocess command display.
 
@@ -262,52 +262,55 @@ Compare against a fixed-setting baseline. Select optimizations from measured res
 
 ## Configuration research
 
-Support `[tool.malideiter]` in `pyproject.toml`, separate TOML, YAML, JSON, and XML files.
+Support `[tool.malideiter]` in `pyproject.toml` and separate TOML, YAML, and JSON files.
 Load an explicit ordered list of files and merge their settings into one validated configuration.
 Treat file storage as user-authored configuration initially. Automatic rewriting and comment preservation remain outside the first version.
 
-### Candidate libraries
+### Library decision
 
-| Candidate | Documented support | Main assessment |
-| --- | --- | --- |
-| Dynaconf | TOML, YAML, JSON, environment variables, custom loaders, and configurable merges.[4][5][6] | Test first for layered files. XML needs an adapter. Check nested merge limits and disable unwanted loader features. |
-| Pydantic Settings | Sources for `pyproject.toml`, TOML, YAML, and JSON, with configurable source order.[7] | Compare typed validation and error quality. XML needs a custom source. Assess added dependency cost beside Beartype. |
-| OmegaConf | YAML and dictionary input, structured configuration, and merge operations.[10] | Keep as a comparison. TOML and XML need adapters. Its interpolation features exceed the current requirement. |
+Use Configurator 3.2.0 for merging. Its documented per-call merge table lets us merge
+mappings without appending lists.[17] It has an MIT license and no required core
+dependencies.[18] The pinned release dates from 2023.[18] Keep the adapter small
+and test supported Python versions before dependency changes.
 
-The project has no configuration dependency yet.
-Start with a small Dynaconf and Pydantic Settings comparison using the same fixtures.
-The reviewed source lists do not establish native XML support for either candidate.[4][7]
-Dynaconf documents merge caveats.[5]
-Pydantic Settings documents shallow file merges unless the caller enables deep merge.[7]
-Verify these behaviors against pinned releases, not only the current documentation.
+Omniconf supports isolated registries.[15] Its registry keeps the first configured
+value instead of recursively merging dictionary settings.[16] An installed-version
+probe confirmed this behavior in 1.5.1. Its package metadata lists ConfigObj, TOML,
+and PyYAML as optional extras. Its core needs none of these extras. A custom merge adapter
+would still be necessary for our nested module settings.
 
-Choose the library with the least custom code that meets the required behavior.
-If neither fits, compare a small loader layer over existing parsers and a merge library.
-Do not build a general configuration framework.
+Dynaconf supports recursive merging, environment layers, and configurable loader
+behavior.[4][5][6] These features exceed this layer's explicit-file requirements.
 
-### Proposed configuration rules
+Use Python's `tomllib` and `json` parsers, plus PyYAML 6.0.3 for YAML.[19]
+The parser adapters reject duplicate keys and unsafe YAML tags before merging.
+Each load uses a separate Configurator instance and a per-call merge table.
+It does not change an application's Configurator defaults.
 
-Load settings in this order. Later sources override earlier values at the same module scope:
+### Configuration rules
 
-1. Built-in defaults.
-2. The selected `pyproject.toml` section.
-3. Explicit configuration files, in caller order.
-4. Environment variables.
-5. Explicit API settings.
+Load explicit files in caller order. Later files replace earlier values at the same
+scope. Merge mappings recursively. Replace lists and scalar values. A file named
+`pyproject.toml` contributes only `[tool.malideiter]`.
 
-For `VERBOSE`, `DEBUG`, and `SILENT`, use the live environment override rule above instead of this source order.
-Then resolve module inheritance and apply the silence rules.
-A module-specific value takes priority over a global value, except where a silence rule prevents output.
-Confirm this interaction between source priority and module scope before implementation.
+Use built-in defaults for missing settings. Explicit `LOG.configure()` arguments
+override loaded delivery settings. Do not load arbitrary environment settings.
+Read live `VERBOSE`, `DEBUG`, and `SILENT` values on every log call.
+These values override stored controls at the same scope. Then apply module
+inheritance and cumulative silence as in the live-control layer.
 
-Other rules:
-- Merge mappings recursively. Replace lists and scalar values by default.
-- Define deletion, null values, duplicate keys, and type conflicts explicitly.
-- Report the source file, setting path, and effective origin for errors.
-- Do not search parent directories or load `.env` files without a defined opt-in policy.
-- Use safe YAML parsing. Reject XML external entities and document type declarations.
-- Define one XML schema for lists, mappings, and scalar types. Do not guess from arbitrary XML shapes.
-- Disable executable configuration, arbitrary imports, and template evaluation.
+Validate each source before merging. An invalid earlier source still fails when a
+later file would replace it. Parsing and type errors identify the source and setting.
+Resolve destination paths relative to their source when loading, not at first output.
+Logger configuration checks path collisions. Loguru checks native file options during initialization.
+
+Null module controls restore inheritance. Null rotation, retention, and compression
+values disable those options. Other null values are invalid. There is no general
+deletion syntax. An empty `files` list replaces earlier destinations.
+
+Do not search parent directories, load `.env` files, expand templates, or execute settings.
+The loader rejects XML and YAML merge keys.
+Automatic rewriting and comment preservation remain outside this layer.
 
 ## Runtime type checking
 
@@ -391,14 +394,16 @@ Confirm the silence scope and whether silence cancels records already in the que
 Keep live environment controls above file and API values at the same module scope.
 
 Approve the module-name encoding and configuration discovery policy.
-Select a configuration library after the comparison, including its secure XML path.
+Use the selected native loader. Do not add XML support.
 Choose how Rich content passes through the queue and how the library manages its Loguru handlers.
 Approve shared console access and the default rotation and retention policy for files.
+
 Specify where every data item needs validation. Define the supported Python versions and operating systems.
 
 Choose a license before public distribution. Check name availability before replacing the code name or publishing.
 
 ## Sources
+
 
 [1] https://loguru.readthedocs.io/en/stable/api/logger.html
 
@@ -412,11 +417,7 @@ Choose a license before public distribution. Check name availability before repl
 
 [6] https://www.dynaconf.com/advanced
 
-[7] https://docs.pydantic.dev/latest/concepts/pydantic_settings
-
 [9] https://jcristharif.com/msgspec
-
-[10] https://omegaconf.readthedocs.io/en/2.3_branch/usage.html
 
 [11] https://rich.readthedocs.io/en/stable/console.html
 
@@ -425,3 +426,13 @@ Choose a license before public distribution. Check name availability before repl
 [13] https://docs.python.org/3/library/os.html
 
 [14] https://rich.readthedocs.io/en/stable/reference/console.html
+
+[15] https://omniconf.readthedocs.io/en/latest/examples.html
+
+[16] https://omniconf.readthedocs.io/en/latest/_modules/omniconf/config.html
+
+[17] https://configurator.readthedocs.io/en/stable/mapping.html
+
+[18] https://pypi.org/project/configurator/3.2.0
+
+[19] https://pypi.org/project/PyYAML/6.0.3

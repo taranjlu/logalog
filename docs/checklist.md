@@ -1,6 +1,6 @@
 # malideiter build checklist
 
-Status: Chunks 1 through 4 are complete. Later chunks remain planned work.
+Status: Chunks 1 through 5 are complete. Later chunks remain planned work.
 
 Use this checklist for execution order. Keep the [longer plan](plan.md) as reference material.
 Build one working layer at a time. Resolve only the decisions that the current layer needs.
@@ -79,13 +79,21 @@ fields, console tracebacks, rotation, compression, file watching, startup cleanu
 and owner-only writes across Linux `fork`, `spawn`, and `forkserver`.
 Formatting, lint, types, builds, mechanical writing checks, and independent review pass.
 
-## 5. Configuration loading
+## 5. Configuration loading — complete
 
-- [ ] Compare configuration libraries against the working core and choose one.
-- [ ] Add `pyproject.toml`, TOML, YAML, JSON, and XML input with typed validation and defined merge rules.
-- [ ] Test source priority and confirm that stored settings do not disable live environment checks.
+- [x] Compare configuration libraries against the working core and choose one.
+- [x] Add explicit `pyproject.toml`, TOML, YAML, and JSON input with typed validation and defined merge rules.
+- [x] Test source priority and confirm that stored settings do not disable live environment checks.
 
 Result: configuration selects existing behavior. It does not introduce a second logging system.
+XML is outside the required formats. Configurator handles recursive mapping merges
+with list replacement. Separate parser adapters provide strict source validation.
+
+Verification: 139 tests pass with 100% line and branch coverage on Python 3.11
+through 3.14 and in an isolated wheel installation. Tests include stored worker
+defaults, live overrides, source errors, file-list replacement, and fixed path origins.
+Formatting, lint, types, builds, mechanical writing checks, and independent review pass.
+The runtime dependency audit found no known vulnerabilities.
 
 ## 6. Rich content and optional encoding
 

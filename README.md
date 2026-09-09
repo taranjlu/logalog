@@ -5,8 +5,8 @@ It uses Loguru, Rich, and Beartype.
 
 ## Status
 
-The first four core layers provide typed logging methods, Rich output on stderr,
-live environment controls, and native text and JSON Lines files.
+The first five layers provide typed logging, Rich stderr output, and live environment controls.
+They also provide text and JSON Lines files and explicit configuration loading.
 Delivery uses Loguru's queue by default. A synchronous override is available.
 No package release or public repository exists as part of this setup.
 
@@ -49,6 +49,38 @@ Loguru size and time strings, archive counts or ages, `watch`, append or write m
 encoding, and buffering. Each path must be unique in one configuration.
 Do not use overlapping filename patterns or share files between independent owners.
 Use `mode="w"` only when you intend to discard an existing file.
+
+Load an explicit ordered list of TOML, JSON, or YAML files before initialization.
+For `pyproject.toml`, the loader reads only `[tool.malideiter]`. Later files
+override earlier scalar and list values. Mappings merge recursively.
+
+```python
+from malideiter import LOG, load_configuration
+
+settings = load_configuration("pyproject.toml", "logging.yaml")
+LOG.configure(configuration=settings)
+```
+
+The root keys are `synchronous`, `prefix`, `verbose`, `debug`, `silent`,
+`modules`, and `files`. A module entry accepts only the three control keys.
+Each file entry accepts the `FileDestination` fields. Relative destination paths
+use the directory of the source that supplies the final `files` list.
+The loader fixes these paths before the working directory can change.
+For `pyproject.toml`, quote dotted module names: `[tool.malideiter.modules."myapp.worker"]`.
+
+The loader does not search for files or read command-line options. It does not load
+environment variables, `.env` files, interpolation, or executable settings. YAML uses
+a private subclass of PyYAML's safe loader. Configurator merges the parsed mappings.
+
+The loader rejects XML and YAML merge keys. Unknown keys, duplicate keys, and incorrect
+types raise `ConfigurationError`. Each source must pass validation, even if a later file replaces its settings.
+
+Null module controls restore inheritance. Null rotation, retention, and compression
+disable those options. Other nulls are invalid. An empty `files` list replaces earlier destinations.
+
+Stored controls supply defaults. Live environment values still take priority at
+the same scope on every call. Explicit `LOG.configure()` delivery arguments take
+priority over loaded delivery settings.
 
 Text files contain plain, unwrapped records. JSON Lines uses Loguru's native `text`
 and `record` fields. Both formats retain exception details without local variable values.
@@ -106,7 +138,7 @@ Accepted Boolean values are `1`, `true`, `yes`, and `on`, or `0`, `false`, `no`,
 and `off`. Case and outer whitespace do not matter. An invalid applicable value
 raises `ConfigurationError` before queue submission.
 
-Configuration loading and advanced Rich content come in later layers.
+Advanced Rich content comes in a later layer.
 Do not use Python `-O` or `-OO`. Beartype disables runtime checks in those modes.
 
 ## Plan

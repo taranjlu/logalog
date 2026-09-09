@@ -5,15 +5,18 @@ from atexit import register
 from beartype import beartype
 
 from ._backend import FileDestination
-from ._logger import ConfigurationError, environment_names
+from ._configuration import Configuration, ConfigurationError, load_configuration
 from ._logger import Logger as _Logger
+from ._logger import environment_names
 
 __all__ = [
     "LOG",
+    "Configuration",
     "ConfigurationError",
     "FileDestination",
     "environment_names",
     "initialize_worker",
+    "load_configuration",
 ]
 
 LOG = _Logger()

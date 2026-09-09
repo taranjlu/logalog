@@ -12,6 +12,7 @@ from beartype import beartype
 from loguru._logger import Logger as LoguruLogger
 
 from ._backend import FileDestination, create_backend
+from ._configuration import Configuration, ConfigurationError
 
 Level = Literal["TRACE", "DEBUG", "VERBOSE", "INFO", "SUCCESS", "WARNING", "ERROR", "CRITICAL"]
 Control = Literal["verbose", "debug", "silent"]
@@ -19,10 +20,6 @@ Control = Literal["verbose", "debug", "silent"]
 _PREFIX = re.compile(r"[A-Z][A-Z0-9_]*\Z")
 _TRUE = frozenset({"1", "true", "yes", "on"})
 _FALSE = frozenset({"0", "false", "no", "off"})
-
-
-class ConfigurationError(ValueError):
-    """Report an invalid live logging control."""
 
 
 @cache
@@ -89,17 +86,32 @@ def _boolean(name: str, value: str) -> bool:
 
 
 @beartype
-def _controls(module: str, prefix: str) -> tuple[bool, bool, bool]:
+def _controls(
+    module: str,
+    prefix: str,
+    defaults: tuple[bool, bool, bool],
+    module_defaults: dict[str, tuple[bool | None, bool | None, bool | None]],
+) -> tuple[bool, bool, bool]:
     """Read and resolve all live controls for one call."""
-    values = [False, False, False]
-    for scope in _control_names(module, prefix):
+    values = [defaults[0], defaults[1], False]
+    module_parts = module.split(".")
+    for scope_index, scope in enumerate(_control_names(module, prefix)):
+        scope_silent = defaults[2] if scope_index == 0 else False
+        if scope_index and (stored := module_defaults.get(".".join(module_parts[:scope_index]))):
+            for index, enabled in enumerate(stored):
+                if enabled is not None:
+                    if index == 2:
+                        scope_silent = enabled
+                    else:
+                        values[index] = enabled
         for index, name in enumerate(scope):
             if (value := environ.get(name)) is not None:
                 enabled = _boolean(name, value)
                 if index == 2:
-                    values[index] |= enabled
+                    scope_silent = enabled
                 else:
                     values[index] = enabled
+        values[2] |= scope_silent
     return cast(tuple[bool, bool, bool], tuple(values))
 
 
@@ -139,6 +151,8 @@ class Logger:
         self._synchronous = synchronous
         self._prefix = prefix
         self._files = files
+        self._control_defaults = (False, False, False)
+        self._module_defaults: dict[str, tuple[bool | None, bool | None, bool | None]] = {}
         self._owner_pid: int | None = None
         self._closed = False
 
@@ -155,29 +169,39 @@ class Logger:
     def configure(
         self,
         *,
-        synchronous: bool = False,
-        prefix: str = "MALIDEITER",
-        files: tuple[FileDestination, ...] = (),
+        configuration: Configuration | None = None,
+        synchronous: bool | None = None,
+        prefix: str | None = None,
+        files: tuple[FileDestination, ...] | None = None,
     ) -> None:
         """Select delivery before the first log call.
 
         Parameters
         ----------
-        synchronous : bool, default=False
+        configuration : Configuration or None, default=None
+            Stored settings loaded by :func:`load_configuration`.
+        synchronous : bool or None, default=None
             Write in the calling thread instead of through the Loguru queue.
-        prefix : str, default="MALIDEITER"
+        prefix : str or None, default=None
             Uppercase prefix for live control environment variables.
-        files : tuple[FileDestination, ...], default=()
+        files : tuple[FileDestination, ...] or None, default=None
             Text and JSON Lines destinations.
         """
+        selected = configuration or Configuration()
+        synchronous = selected.synchronous if synchronous is None else synchronous
+        prefix = selected.prefix if prefix is None else prefix
+        files = selected.files if files is None else files
         _validate("module", prefix)
         _validate_files(files)
+        module_defaults = dict(selected.modules)
         with self._lock:
             if self._backend is not None or self._closed:
                 raise RuntimeError("Logger configuration is already fixed")
             self._synchronous = synchronous
             self._prefix = prefix
             self._files = files
+            self._control_defaults = (selected.verbose, selected.debug, selected.silent)
+            self._module_defaults = module_defaults
 
     def initialize(self) -> None:
         """Create the owner queue before workers start."""
@@ -191,6 +215,8 @@ class Logger:
             "backend": self._get_backend(),
             "owner_pid": self._owner_pid,
             "prefix": self._prefix,
+            "control_defaults": self._control_defaults,
+            "module_defaults": self._module_defaults,
         }
 
     def __setstate__(self, state: dict[str, object]) -> None:
@@ -200,6 +226,10 @@ class Logger:
         self._synchronous = False
         self._prefix = cast(str, state["prefix"])
         self._files = ()
+        self._control_defaults = cast(tuple[bool, bool, bool], state["control_defaults"])
+        self._module_defaults = cast(
+            dict[str, tuple[bool | None, bool | None, bool | None]], state["module_defaults"]
+        )
         self._owner_pid = cast(int | None, state["owner_pid"])
         self._closed = False
 
@@ -231,6 +261,8 @@ class Logger:
             self._owner_pid = owner._owner_pid
             self._prefix = owner._prefix
             self._files = ()
+            self._control_defaults = owner._control_defaults
+            self._module_defaults = owner._module_defaults
 
     def _emit(
         self,
@@ -260,7 +292,9 @@ class Logger:
             finally:
                 del frame
 
-            verbose, debug, silent = _controls(module, self._prefix)
+            verbose, debug, silent = _controls(
+                module, self._prefix, self._control_defaults, self._module_defaults
+            )
             if silent or (level == "VERBOSE" and not verbose) or (level == "DEBUG" and not debug):
                 return
 
