@@ -10,6 +10,10 @@ The package does not yet provide the logging API or `LOG`.
 Runtime dependencies will enter the project with the code that uses them.
 No package release or public repository exists as part of this setup.
 
+## Plan
+
+Read the [development plan](docs/plan.md) for the proposed API, configuration comparison, and execution stages.
+
 ## Structure
 
 - `src/malideiter/`: package source and type marker.

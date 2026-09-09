@@ -1,7 +1,7 @@
 # Agent guidance
 
 Read `README.md` before you change this project.
-Read the documents in `docs/` before you change the planned design.
+Read `docs/plan.md` before you change the planned design.
 Repository code, tests, and accepted decisions define the project behavior.
 
 ## Scope
