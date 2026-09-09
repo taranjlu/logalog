@@ -1,6 +1,6 @@
 # malideiter build checklist
 
-Status: Chunks 1 and 2 are complete. Later chunks remain planned work.
+Status: Chunks 1 through 3 are complete. Later chunks remain planned work.
 
 Use this checklist for execution order. Keep the [longer plan](plan.md) as reference material.
 Build one working layer at a time. Resolve only the decisions that the current layer needs.
@@ -33,13 +33,31 @@ Linux tests cover `fork`, `spawn`, and `forkserver`, including owner-only output
 Tests also cover concurrent shutdown, normal interpreter exit, sink failures, and serialization failures.
 The installed wheel passes the same full suite outside the checkout.
 
-## 3. Live logging controls
+## 3. Live logging controls — complete
 
-- [ ] Add independent verbose, debug, and silence controls, globally and per module.
-- [ ] Generate module variable names and provide a helper to discover them.
-- [ ] Read applicable environment values on every call. Test value changes, inheritance, and check overhead.
+- [x] Add independent verbose, debug, and silence controls, globally and per module.
+- [x] Generate module variable names and provide a helper to discover them.
+- [x] Read applicable environment values on every call. Test value changes, inheritance, and check overhead.
 
 Result: environment changes affect the next call without reload. Cache names, not environment values or filter decisions.
+
+Chunk 3 decisions: Debug and verbose default to off. Silence defaults to off and
+suppresses all library output. Exact module values override parent and global debug
+or verbose values. Silence is cumulative. Accepted queued records keep their call-time
+decision.
+
+Environment names encode each UTF-8 module part as uppercase hex to prevent
+case and underscore collisions. These decisions replace the related plan proposals for
+this layer.
+
+Verification: 73 tests pass with 100% line and branch coverage.
+Tests cover live changes, inheritance, queue decisions, custom worker prefixes, and shutdown.
+
+A disposable Python 3.11.15 benchmark measured 6.64 µs for a suppressed short-module call and 13.46 µs for a deep module.
+Enabled calls to a null sink took 13.99 µs and 21.12 µs.
+The fixed-decision baseline took 8.66 µs enabled and 1.57 µs suppressed.
+Each result is the median of three runs of 20,000 calls.
+Two calls with two environment updates took 22.35 µs. Measurements exclude Rich rendering and terminal I/O.
 
 ## 4. File destinations
 

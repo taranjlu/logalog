@@ -1,7 +1,9 @@
 """Provide the typed core logging interface."""
 
+import re
+from functools import cache
 from inspect import currentframe
-from os import getpid
+from os import environ, getpid
 from threading import RLock
 from typing import Literal, cast
 
@@ -10,18 +12,107 @@ from loguru._logger import Logger as LoguruLogger
 
 from ._backend import create_backend
 
-Level = Literal["TRACE", "DEBUG", "INFO", "SUCCESS", "WARNING", "ERROR", "CRITICAL"]
+Level = Literal["TRACE", "DEBUG", "VERBOSE", "INFO", "SUCCESS", "WARNING", "ERROR", "CRITICAL"]
+Control = Literal["verbose", "debug", "silent"]
+
+_PREFIX = re.compile(r"[A-Z][A-Z0-9_]*\Z")
+_TRUE = frozenset({"1", "true", "yes", "on"})
+_FALSE = frozenset({"0", "false", "no", "off"})
+
+
+class ConfigurationError(ValueError):
+    """Report an invalid live logging control."""
+
+
+@cache
+@beartype
+def _control_names(module: str, prefix: str) -> tuple[tuple[str, str, str], ...]:
+    """Cache stable environment names for a module and its parents."""
+    parts = module.split(".")
+    paths = (
+        "__".join(part.encode().hex().upper() for part in parts[:end])
+        for end in range(1, len(parts) + 1)
+    )
+    global_names = (f"{prefix}_VERBOSE", f"{prefix}_DEBUG", f"{prefix}_SILENT")
+    module_names = tuple(
+        (
+            f"{prefix}_MODULE__{path}_VERBOSE",
+            f"{prefix}_MODULE__{path}_DEBUG",
+            f"{prefix}_MODULE__{path}_SILENT",
+        )
+        for path in paths
+    )
+    return (global_names, *module_names)
+
+
+@beartype
+def environment_names(module: str, *, prefix: str = "MALIDEITER") -> dict[str, str]:
+    """Return the global and exact-module environment variable names.
+
+    Parameters
+    ----------
+    module : str
+        Full caller module name.
+    prefix : str, default="MALIDEITER"
+        Uppercase application prefix.
+    """
+    _validate(module, prefix)
+    exact = _control_names(module, prefix)[-1]
+    return {
+        f"global_{control}": f"{prefix}_{control.upper()}"
+        for control in ("verbose", "debug", "silent")
+    } | {
+        f"module_{control}": name
+        for control, name in zip(("verbose", "debug", "silent"), exact, strict=True)
+    }
+
+
+@beartype
+def _validate(module: str, prefix: str) -> None:
+    """Validate values that form environment variable names."""
+    if not module or any(not part for part in module.split(".")):
+        raise ValueError("Module must contain nonempty dot-separated parts")
+    if _PREFIX.fullmatch(prefix) is None:
+        raise ValueError("Prefix must contain uppercase ASCII letters, digits, or underscores")
+
+
+@beartype
+def _boolean(name: str, value: str) -> bool:
+    """Parse a deterministic environment Boolean."""
+    normalized = value.strip().lower()
+    if normalized in _TRUE:
+        return True
+    if normalized in _FALSE:
+        return False
+    raise ConfigurationError(f"Invalid Boolean value for {name}")
+
+
+@beartype
+def _controls(module: str, prefix: str) -> tuple[bool, bool, bool]:
+    """Read and resolve all live controls for one call."""
+    values = [False, False, False]
+    for scope in _control_names(module, prefix):
+        for index, name in enumerate(scope):
+            if (value := environ.get(name)) is not None:
+                enabled = _boolean(name, value)
+                if index == 2:
+                    values[index] |= enabled
+                else:
+                    values[index] = enabled
+    return cast(tuple[bool, bool, bool], tuple(values))
 
 
 @beartype
 class Logger:
     """Send typed log calls to an isolated, lazily initialized backend."""
 
-    def __init__(self, *, synchronous: bool = False) -> None:
+    def __init__(self, *, synchronous: bool = False, prefix: str = "MALIDEITER") -> None:
         """Keep import free of output and worker threads."""
+        _validate("module", prefix)
         self._backend: LoguruLogger | None = None
         self._lock = RLock()
         self._synchronous = synchronous
+        self._prefix = prefix
         self._owner_pid: int | None = None
         self._closed = False
 
@@ -35,18 +126,22 @@ class Logger:
                 self._owner_pid = getpid()
             return self._backend
 
-    def configure(self, *, synchronous: bool = False) -> None:
+    def configure(self, *, synchronous: bool = False, prefix: str = "MALIDEITER") -> None:
         """Select delivery before the first log call.
 
         Parameters
         ----------
         synchronous : bool, default=False
             Write in the calling thread instead of through the Loguru queue.
+        prefix : str, default="MALIDEITER"
+            Uppercase prefix for live control environment variables.
         """
+        _validate("module", prefix)
         with self._lock:
             if self._backend is not None or self._closed:
                 raise RuntimeError("Logger configuration is already fixed")
             self._synchronous = synchronous
+            self._prefix = prefix
 
     def initialize(self) -> None:
         """Create the owner queue before workers start."""
@@ -56,13 +151,18 @@ class Logger:
         """Serialize only state needed by a spawned logging worker."""
         if self._synchronous:
             raise ValueError("Worker logging requires queued delivery")
-        return {"backend": self._get_backend(), "owner_pid": self._owner_pid}
+        return {
+            "backend": self._get_backend(),
+            "owner_pid": self._owner_pid,
+            "prefix": self._prefix,
+        }
 
     def __setstate__(self, state: dict[str, object]) -> None:
         """Restore a queued logger without creating a worker thread."""
         self._backend = cast(LoguruLogger, state["backend"])
         self._lock = RLock()
         self._synchronous = False
+        self._prefix = cast(str, state["prefix"])
         self._owner_pid = cast(int | None, state["owner_pid"])
         self._closed = False
 
@@ -92,6 +192,7 @@ class Logger:
                 raise ValueError("Worker logging requires queued delivery")
             self._backend = owner._get_backend()
             self._owner_pid = owner._owner_pid
+            self._prefix = owner._prefix
 
     def _emit(
         self,
@@ -104,7 +205,8 @@ class Logger:
     ) -> None:
         """Preserve the external caller through library and Beartype wrappers."""
         with self._lock:
-            backend = self._get_backend()
+            if self._closed:
+                raise RuntimeError("Logger is shut down")
             frame = currentframe()
             depth = 0
             try:
@@ -114,9 +216,17 @@ class Logger:
                 ):
                     depth += 1
                     frame = frame.f_back
+                module = (
+                    cast(str, frame.f_globals.get("__name__", "__main__")) if frame else "__main__"
+                )
             finally:
                 del frame
 
+            verbose, debug, silent = _controls(module, self._prefix)
+            if silent or (level == "VERBOSE" and not verbose) or (level == "DEBUG" and not debug):
+                return
+
+            backend = self._get_backend()
             backend.opt(depth=depth, exception=exception).log(level, message, *args, **fields)
 
     def log(self, level: Level, message: str, *args: object, **fields: object) -> None:
@@ -142,6 +252,10 @@ class Logger:
     def debug(self, message: str, *args: object, **fields: object) -> None:
         """Log a debug message."""
         self._emit("DEBUG", message, args, fields)
+
+    def verbose(self, message: str, *args: object, **fields: object) -> None:
+        """Log a verbose message."""
+        self._emit("VERBOSE", message, args, fields)
 
     def info(self, message: str, *args: object, **fields: object) -> None:
         """Log an information message."""

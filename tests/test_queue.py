@@ -131,10 +131,17 @@ def test_process_workers_share_owner_queue(tmp_path: Path, method: str) -> None:
     """Deliver each worker record once through the owner queue."""
     script = r"""
 import multiprocessing as mp
+import os
 from malideiter import LOG, initialize_worker
 
 def work(owner, value):
     initialize_worker(owner)
+    LOG.info("inherited-silence-hidden")
+    os.environ["WORKERS_SILENT"] = "0"
+    os.environ["WORKERS_DEBUG"] = "1"
+    LOG.debug("worker-debug-{}", value)
+    os.environ["WORKERS_DEBUG"] = "0"
+    LOG.debug("worker-debug-hidden")
     LOG.info("process-event-{}", value)
     try:
         raise ValueError(f"worker-failure-{value}")
@@ -153,13 +160,16 @@ if __name__ == "__main__":
         assert getpid() == owner_pid, "Non-owner writer"
         original_emit(handler, record)
     RichHandler.emit = verify_owner
+    LOG.configure(prefix="WORKERS")
     LOG.initialize()
+    os.environ["WORKERS_SILENT"] = "1"
     processes = [mp.Process(target=work, args=(LOG, value)) for value in range(4)]
     for process in processes:
         process.start()
     for process in processes:
         process.join(10)
         assert process.exitcode == 0
+    os.environ["WORKERS_SILENT"] = "0"
     LOG.info("owner-still-active")
     LOG.flush()
     LOG.shutdown()
@@ -181,6 +191,10 @@ if __name__ == "__main__":
     assert sorted(re.findall(r"worker-failure-\d", result.stderr)) == [
         f"worker-failure-{value}" for value in range(4)
     ]
+    assert sorted(re.findall(r"worker-debug-\d", result.stderr)) == [
+        f"worker-debug-{value}" for value in range(4)
+    ]
+    assert "hidden" not in result.stderr
     assert result.stderr.count("owner-still-active") == 1
     assert "Logging error" not in result.stderr
 

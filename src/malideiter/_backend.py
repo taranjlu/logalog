@@ -61,6 +61,7 @@ def create_backend(*, enqueue: bool = True) -> Logger:
     )
     if enqueue:
         backend = backend.patch(_preserve_queued_traceback)
+    backend.level("VERBOSE", no=15, color="<blue>", icon="")
     console = Console(stderr=True, markup=False, highlight=False)
     handler = RichHandler(
         console=console,

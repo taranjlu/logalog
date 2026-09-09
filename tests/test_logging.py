@@ -28,12 +28,28 @@ def log() -> Iterator[Logger]:
 
 
 @pytest.mark.parametrize(
-    "method", ["trace", "debug", "info", "success", "warning", "error", "critical"]
+    ("method", "controlled"),
+    [
+        ("trace", False),
+        ("debug", True),
+        ("verbose", True),
+        ("info", False),
+        ("success", False),
+        ("warning", False),
+        ("error", False),
+        ("critical", False),
+    ],
 )
 def test_levels_write_once_to_stderr(
-    log: Logger, capsys: pytest.CaptureFixture[str], method: str
+    log: Logger,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+    method: str,
+    controlled: bool,
 ) -> None:
     """Write every supported severity once without using stdout."""
+    if controlled:
+        monkeypatch.setenv(f"MALIDEITER_{method.upper()}", "1")
     getattr(log, method)("message-marker")
 
     captured = capsys.readouterr()
@@ -155,7 +171,18 @@ def test_exception_outside_handler(log: Logger, capsys: pytest.CaptureFixture[st
 
 
 @pytest.mark.parametrize(
-    "method", ["trace", "debug", "info", "success", "warning", "error", "critical", "exception"]
+    "method",
+    [
+        "trace",
+        "debug",
+        "verbose",
+        "info",
+        "success",
+        "warning",
+        "error",
+        "critical",
+        "exception",
+    ],
 )
 def test_invalid_message_fails_before_setup(
     log: Logger, method: str, capsys: pytest.CaptureFixture[str]

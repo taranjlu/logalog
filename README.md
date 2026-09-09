@@ -5,7 +5,8 @@ It uses Loguru, Rich, and Beartype.
 
 ## Status
 
-The first two core layers provide typed logging methods and Rich output on stderr.
+The first three core layers provide typed logging methods, Rich output on stderr,
+and live environment controls.
 Delivery uses Loguru's queue by default. A synchronous override is available.
 No package release or public repository exists as part of this setup.
 
@@ -16,6 +17,7 @@ from malideiter import LOG
 
 LOG.info("Task {}: {state}", 17, state="complete")
 LOG.debug("Worker started")
+LOG.verbose("Worker is still active")
 
 try:
     raise ValueError("Invalid task")
@@ -24,8 +26,10 @@ except ValueError:
 ```
 
 Call `LOG.configure(synchronous=True)` before the first log call to write in the
-calling thread. Call `LOG.flush()` to wait for queued records. Call
+calling thread. Use `LOG.configure(prefix="MY_APP")` to replace the default
+`MALIDEITER` environment prefix. Call `LOG.flush()` to wait for queued records. Call
 `LOG.shutdown()` after workers stop to flush records and close the owner handler.
+
 Shutdown is final. Later log calls raise `RuntimeError`.
 The shared logger also flushes at normal interpreter exit, including an unhandled exception.
 
@@ -39,7 +43,8 @@ Keep the owner alive until all workers finish.
 For `fork`, start workers before application threads. Loguru manages its own queue-thread locks across fork.
 The Linux tests cover `fork`, `spawn`, and `forkserver`.
 
-Use `trace`, `debug`, `info`, `success`, `warning`, `error`, or `critical` for messages.
+Use `trace`, `debug`, `verbose`, `info`, `success`, `warning`, `error`, or `critical`
+for messages.
 Use `exception` for an error with the current traceback.
 Use `LOG.log("WARNING", "Message")` to select a severity by name.
 
@@ -55,12 +60,29 @@ Queued tracebacks use plain traceback text inside the Rich message. Synchronous 
 Tracebacks exclude local variable values, but exception messages and source lines can still contain sensitive data.
 
 Import produces no output and starts no worker thread.
-The first valid call creates one reusable stderr console.
+The first emitted record creates one reusable stderr console.
 The library does not create a stdout console or change application logging handlers.
 Keep stdout available for application data, command results, and machine-readable output.
 
-All severities are visible in this layer, including debug and trace.
-Live environment controls, file output, configuration loading, and advanced Rich content come in later layers.
+Debug and verbose output are off by default. Set `MALIDEITER_DEBUG=1` or
+`MALIDEITER_VERBOSE=1` to enable each category independently. Set
+`MALIDEITER_SILENT=1` to suppress all output. Each call reads current values from
+`os.environ`. Changes apply in the calling process, before queue submission.
+
+Accepted records keep their decision while queued. A later parent-process change does not update an existing worker.
+
+Import `environment_names` from `malideiter` to get all global and exact-module names.
+For example, call `environment_names("myapp.worker", prefix="MY_APP")`. Use the same prefix as `LOG`.
+
+Module settings inherit from parents. A child value overrides inherited debug or
+verbose values. A child cannot cancel inherited silence. Module name parts use
+uppercase UTF-8 hex, which keeps case and underscores distinct.
+
+Accepted Boolean values are `1`, `true`, `yes`, and `on`, or `0`, `false`, `no`,
+and `off`. Case and outer whitespace do not matter. An invalid applicable value
+raises `ConfigurationError` before queue submission.
+
+File output, configuration loading, and advanced Rich content come in later layers.
 Do not use Python `-O` or `-OO`. Beartype disables runtime checks in those modes.
 
 ## Plan
