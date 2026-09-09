@@ -10,6 +10,10 @@ check:
 test:
     uv run pytest
 
+# Write an HTML coverage report to htmlcov/index.html.
+coverage:
+    uv run pytest --cov-report=html
+
 # Run each supported Python version in a separate environment.
 test-matrix:
     for version in 3.11 3.12 3.13 3.14; do uv run --locked --isolated --python "$version" pytest || exit; done

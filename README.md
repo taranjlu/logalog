@@ -73,6 +73,12 @@ With `just` available, use `just check`, `just test`, and `just build`.
 Use `just test-matrix` to test each supported Python version in a separate environment.
 Tests cover output, caller information, exceptions, runtime type checks, threads, import safety, and application handler isolation.
 
+Full test runs fail below 100% line and branch coverage of `malideiter`.
+Coverage includes subprocess execution.
+Use `just coverage` to write an HTML report to `htmlcov/index.html`.
+For focused tests, use `uv run pytest --no-cov <test-path>`.
+Run the full suite before you finish a change. Do not add exclusions to reach the coverage target.
+
 The backend adapter uses private Loguru constructors to create an independent logger.
 Copying the shared logger can fail when an application has existing file handlers.
 The dependency range limits Loguru to `>=0.7.3,<0.8`.

@@ -36,6 +36,9 @@ For package changes, build and test the wheel outside the checkout.
 Add tests for observable behavior and failure cases.
 Do not add tests only to increase a coverage number.
 
+Maintain 100% line and branch coverage of the package. Do not add exclusions to reach that target.
+Use `--no-cov` only for focused tests. Verify the full suite before you finish.
+
 ## Writing
 
 Use ASD-STE100 Simplified Technical English as the writing target.

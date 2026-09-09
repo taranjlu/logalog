@@ -17,6 +17,7 @@ dependencies = [
 [dependency-groups]
 dev = [
     "pytest>=9.1.1",
+    "pytest-cov>=7.1.0",
     "ruff>=0.16.6",
     "ty>=0.0.79",
 ]
@@ -26,8 +27,18 @@ source-include = ["tests/**", "docs/**", "AGENTS.md", "justfile", "mise.toml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = ["--strict-config", "--strict-markers"]
+addopts = ["--strict-config", "--strict-markers", "--cov", "--cov-report=term-missing"]
 xfail_strict = true
+
+[tool.coverage.run]
+source = ["malideiter"]
+branch = true
+patch = ["subprocess"]
+
+[tool.coverage.report]
+fail_under = 100
+precision = 2
+show_missing = true
 
 [tool.ruff]
 target-version = "py311"
