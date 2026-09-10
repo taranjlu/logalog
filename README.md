@@ -22,13 +22,13 @@ LOG.verbose("Worker is still active")
 try:
     raise ValueError("Invalid task")
 except ValueError:
-LOG.exception("Task failed")
+    LOG.exception("Task failed")
 ```
 
 The same methods accept Rich renderables. The logger supports tables, syntax blocks,
 text, and multiline groups. It renders each accepted object before queue submission.
 This action gives the event a stable snapshot and supports mutable or non-pickleable
-renderables. Rich format arguments are not accepted. Add fields by keyword.
+renderables. Do not pass format arguments with Rich objects. Add fields by keyword.
 
 ```python
 from rich.syntax import Syntax
@@ -124,6 +124,43 @@ Use `trace`, `debug`, `verbose`, `info`, `success`, `warning`, `error`, or `crit
 for messages.
 Use `exception` for an error with the current traceback.
 Use `LOG.log("WARNING", "Message")` to select a severity by name.
+
+Use sections to group nested work. Each event gets `section_depth`, `section`, and
+`section_parent` fields before queue submission. Each logger keeps separate section
+state for threads and asynchronous tasks. Set `elapsed=True` to show monotonic elapsed
+time on completion or failure.
+
+Create a fresh section object for each concurrent operation. Sequential reuse is
+supported, but simultaneous reuse is not. Child tasks inherit the creation-time
+context. Spawned workers start without section context.
+The section metadata keys replace user fields with the same names.
+
+```python
+with LOG.section("Import", elapsed=True):
+    LOG.info("Read source")
+
+
+@LOG(elapsed=True)
+def update() -> None:
+    LOG.info("Update data")
+```
+
+`@LOG` supports ordinary synchronous and asynchronous functions. It preserves returns,
+exceptions, and function metadata. It does not support generators or asynchronous
+generators. It does not log function arguments.
+
+Use `LOG.command(["tool", "--token", token], cwd="work", redact_indices=(2,))` to
+display a command and its planned working directory. The helper uses the POSIX or
+Windows platform quoting convention. The display is not universal shell syntax. It
+never executes the command or changes directories.
+
+Redaction uses only the argument indices and exact values that you give it.
+Use `redact_values` to hide an exact `cwd` value. An invalid redaction index stops
+the call before logging. The `command` and `cwd` record fields contain the display values.
+
+Use strings for command arguments and redaction values. Runtime type errors can
+include argument representations. Quoting does not escape embedded newlines.
+Do not treat command display as a sanitizer for untrusted terminal text.
 
 String arguments use Loguru format syntax. Strings stay literal when no arguments are
 present. Named arguments also remain in the Loguru record.

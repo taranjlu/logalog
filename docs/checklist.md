@@ -1,6 +1,6 @@
 # malideiter build checklist
 
-Status: Chunks 1 through 6 are complete. Chunk 7 remains planned work.
+Status: Chunks 1 through 7 are complete.
 
 Use this checklist for execution order. Keep the [longer plan](plan.md) as reference material.
 Build one working layer at a time. Resolve only the decisions that the current layer needs.
@@ -111,19 +111,26 @@ that Python cannot pickle. Live controls suppress records before rendering.
 MessagePack remains deferred. A disposable Loguru 0.7.3 test confirmed that callable
 binary sinks reject `rotation`, `retention`, and `compression`. A native path sink writes
 text and cannot write `msgspec` bytes. Supporting MessagePack with these guarantees
-would require custom binary file rotation, retention, and compression. This design is
-outside the file-ownership rule. A host test passed the `msgspec` encoding round trip
+would need custom binary file rotation, retention, and compression. This design is
+outside the file-ownership rule.
+
+A host test passed the `msgspec` encoding round trip
 and confirmed the native sink restrictions in both delivery modes. Add MessagePack only if Loguru adds
 native binary path encoding or another small integration keeps all native file and
 shutdown guarantees.
 
-## 7. Logging utilities
+## 7. Logging utilities — complete
 
-- [ ] Add nested section contexts and elapsed time, with separate context for concurrent tasks.
-- [ ] Add function decorators that preserve return values, exceptions, and async behavior.
-- [ ] Add command display with quoting and redaction, without command execution.
+- [x] Add nested section contexts and elapsed time, with separate context for concurrent tasks.
+- [x] Add function decorators that preserve return values, exceptions, and async behavior.
+- [x] Add command display with quoting and redaction, without command execution.
 
 Result: utilities build on the core instead of changing its delivery rules.
+
+Verification: 163 tests pass with 100% line and branch coverage on Python 3.11
+through 3.14 and in an isolated wheel installation. Formatting, lint, types,
+builds, and mechanical writing checks pass. Independent review found no blocking
+issues. The README documents type-error and command-display limits.
 
 ## Rules for every chunk
 

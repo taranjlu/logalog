@@ -1,12 +1,19 @@
 """Provide the typed core logging interface."""
 
 import re
-from functools import cache
-from inspect import currentframe
-from os import environ, fspath, getpid
+from collections.abc import Callable, Iterable, Sequence
+from contextvars import ContextVar, Token
+from functools import cache, wraps
+from inspect import currentframe, isasyncgenfunction, iscoroutinefunction, isgeneratorfunction
+from os import PathLike, environ, fspath, getpid
+from os import name as os_name
 from os.path import normcase, realpath
+from shlex import join as shell_join
+from subprocess import list2cmdline
 from threading import RLock
-from typing import Literal, cast
+from time import monotonic
+from types import TracebackType
+from typing import Literal, ParamSpec, TypeVar, cast, overload
 
 from beartype import beartype
 from loguru._logger import Logger as LoguruLogger
@@ -18,10 +25,68 @@ from ._configuration import Configuration, ConfigurationError
 
 Level = Literal["TRACE", "DEBUG", "VERBOSE", "INFO", "SUCCESS", "WARNING", "ERROR", "CRITICAL"]
 Control = Literal["verbose", "debug", "silent"]
+P = ParamSpec("P")
+R = TypeVar("R")
 
 _PREFIX = re.compile(r"[A-Z][A-Z0-9_]*\Z")
 _TRUE = frozenset({"1", "true", "yes", "on"})
 _FALSE = frozenset({"0", "false", "no", "off"})
+_REDACTED = "[REDACTED]"
+
+
+@beartype
+def _quote_command(arguments: Sequence[str], *, windows: bool = os_name == "nt") -> str:
+    """Quote an argument vector for the selected platform convention."""
+    return list2cmdline(arguments) if windows else shell_join(arguments)
+
+
+@beartype
+class _Section:
+    """Manage one logger section without changing exception behavior."""
+
+    def __init__(self, logger: "Logger", title: str, elapsed: bool) -> None:
+        self._logger = logger
+        self._title = title
+        self._elapsed = elapsed
+        self._token: Token[tuple[str, ...]] | None = None
+        self._started = 0.0
+
+    def __enter__(self) -> None:
+        if self._token is not None:
+            raise RuntimeError("Section is already active")
+        context = (*self._logger._sections.get(), self._title)
+        self._token = self._logger._sections.set(context)
+        self._started = monotonic()
+        try:
+            self._logger.info("▶ {}", self._title)
+        except BaseException:
+            self._logger._sections.reset(self._token)
+            self._token = None
+            raise
+
+    def __exit__(
+        self,
+        exception_type: type[BaseException] | None,
+        exception: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> Literal[False]:
+        token = self._token
+        if token is None:
+            raise RuntimeError("Section is not active")
+        try:
+            duration = monotonic() - self._started
+            suffix = f" ({duration:.3f} s)" if self._elapsed else ""
+            if exception_type is None:
+                self._logger.success("✓ {}{}", self._title, suffix)
+            else:
+                self._logger.exception("✗ {}{}", self._title, suffix)
+        except BaseException:
+            if exception_type is None:
+                raise
+        finally:
+            self._logger._sections.reset(token)
+            self._token = None
+        return False
 
 
 @cache
@@ -158,6 +223,9 @@ class Logger:
         self._owner_pid: int | None = None
         self._closed = False
         self._renderer: Console | None = None
+        self._sections: ContextVar[tuple[str, ...]] = ContextVar(
+            f"malideiter_sections_{id(self)}", default=()
+        )
 
     def _get_backend(self) -> LoguruLogger:
         """Initialize the backend once, including during concurrent first use."""
@@ -236,6 +304,7 @@ class Logger:
         self._owner_pid = cast(int | None, state["owner_pid"])
         self._closed = False
         self._renderer = None
+        self._sections = ContextVar(f"malideiter_sections_{id(self)}", default=())
 
     def flush(self) -> None:
         """Wait until Loguru delivers all queued records."""
@@ -267,6 +336,116 @@ class Logger:
             self._files = ()
             self._control_defaults = owner._control_defaults
             self._module_defaults = owner._module_defaults
+
+    @overload
+    def __call__(self, function: Callable[P, R], /) -> Callable[P, R]: ...
+
+    @overload
+    def __call__(self, *, elapsed: bool = False) -> Callable[[Callable[P, R]], Callable[P, R]]: ...
+
+    def __call__(
+        self, function: Callable[P, R] | None = None, /, *, elapsed: bool = False
+    ) -> Callable[P, R] | Callable[[Callable[P, R]], Callable[P, R]]:
+        """Log entry and exit for an ordinary synchronous or asynchronous function.
+
+        Parameters
+        ----------
+        function : Callable[P, R] or None, default=None
+            Function to decorate. Generators and asynchronous generators are not supported.
+        elapsed : bool, default=False
+            Add monotonic elapsed time to the completion or failure event.
+        """
+        if function is None:
+            return lambda selected: self._decorate(selected, elapsed=elapsed)
+        return self._decorate(function, elapsed=elapsed)
+
+    def _decorate(self, function: Callable[P, R], *, elapsed: bool) -> Callable[P, R]:
+        """Build the matching synchronous or asynchronous wrapper."""
+        if isgeneratorfunction(function) or isasyncgenfunction(function):
+            raise TypeError("LOG does not support generator functions")
+        name = getattr(function, "__qualname__", type(function).__qualname__)
+        if iscoroutinefunction(function):
+
+            @wraps(function)
+            async def asynchronous(*args: P.args, **kwargs: P.kwargs) -> R:
+                with self.section(name, elapsed=elapsed):
+                    return await function(*args, **kwargs)
+
+            return cast(Callable[P, R], asynchronous)
+
+        @wraps(function)
+        def synchronous(*args: P.args, **kwargs: P.kwargs) -> R:
+            with self.section(name, elapsed=elapsed):
+                return function(*args, **kwargs)
+
+        return synchronous
+
+    def section(self, title: str, *, elapsed: bool = False) -> _Section:
+        """Return a recursively indented logging section.
+
+        Parameters
+        ----------
+        title : str
+            Section identity shown in lifecycle events and structured metadata.
+        elapsed : bool, default=False
+            Add monotonic elapsed time to the completion or failure event.
+        """
+        if not title:
+            raise ValueError("Section title must not be empty")
+        return _Section(self, title, elapsed)
+
+    def command(
+        self,
+        arguments: Sequence[str],
+        *,
+        redact_indices: Iterable[int] = (),
+        redact_values: Iterable[str] = (),
+        cwd: str | PathLike[str] | None = None,
+    ) -> None:
+        """Display a platform-quoted command without executing it.
+
+        Parameters
+        ----------
+        arguments : Sequence[str]
+            Command argument vector.
+        redact_indices : Iterable[int], default=()
+            Zero-based argument positions to replace before logging.
+        redact_values : Iterable[str], default=()
+            Exact argument values to replace before logging.
+        cwd : str or PathLike[str] or None, default=None
+            Planned working directory to display without changing directories.
+        """
+        if isinstance(arguments, (str, bytes)) or not arguments:
+            raise ValueError("Command arguments must be a nonempty sequence")
+        if any(not isinstance(argument, str) for argument in arguments):
+            raise TypeError("Every command argument must be a string")
+        indices = tuple(redact_indices)
+        if any(isinstance(index, bool) or not isinstance(index, int) for index in indices):
+            raise TypeError("Every redaction index must be an integer")
+        if any(index < 0 or index >= len(arguments) for index in indices):
+            raise IndexError("Command redaction index is out of range")
+        values = tuple(redact_values)
+        if any(not isinstance(value, str) for value in values):
+            raise TypeError("Every redaction value must be a string")
+        hidden = set(values)
+        displayed = [
+            _REDACTED if index in indices or argument in hidden else argument
+            for index, argument in enumerate(arguments)
+        ]
+        quoted = _quote_command(displayed)
+        displayed_cwd = None if cwd is None else fspath(cwd)
+        if displayed_cwd in hidden:
+            displayed_cwd = _REDACTED
+        if displayed_cwd is None:
+            self.info("$ {}", quoted, command=tuple(displayed))
+        else:
+            self.info(
+                "$ {}\n  cwd: {}",
+                quoted,
+                _quote_command([displayed_cwd]),
+                command=tuple(displayed),
+                cwd=displayed_cwd,
+            )
 
     def _emit(
         self,
@@ -302,6 +481,22 @@ class Logger:
             if silent or (level == "VERBOSE" and not verbose) or (level == "DEBUG" and not debug):
                 return
 
+            sections = self._sections.get()
+            formatted = False
+            if sections:
+                if isinstance(message, str) and (args or fields):
+                    message = message.format(*args, **fields)
+                    args = ()
+                    formatted = True
+                fields |= {
+                    "section_depth": len(sections),
+                    "section": sections[-1],
+                    "section_parent": sections[-2] if len(sections) > 1 else None,
+                }
+                indentation = "  " * (len(sections) - 1)
+                if isinstance(message, str):
+                    message = indentation + message.replace("\n", f"\n{indentation}")
+
             if not isinstance(message, str):
                 if args:
                     raise ValueError("Rich renderables do not accept format arguments")
@@ -314,6 +509,14 @@ class Logger:
                     )
                 )
                 message = snapshot.plain.removesuffix("\n")
+                if sections:
+                    if snapshot.plain.endswith("\n"):
+                        snapshot = snapshot[:-1]
+                    indentation = "  " * (len(sections) - 1)
+                    snapshot = Text(indentation) + Text(f"\n{indentation}").join(
+                        snapshot.split(allow_blank=True)
+                    )
+                    message = snapshot.plain.removesuffix("\n")
                 fields[_RICH_SNAPSHOT] = snapshot
             backend = self._get_backend()
             if _RICH_SNAPSHOT in fields:
@@ -323,7 +526,7 @@ class Logger:
                 backend.bind(**fields).opt(depth=depth, exception=exception).log(level, message)
                 return
             if exception:
-                if args or fields:
+                if not formatted and not sections and (args or fields):
                     message = message.format(*args, **fields)
                 backend.bind(**fields, **{_CONSOLE_ONLY: True}).opt(
                     depth=depth, exception=True
@@ -332,7 +535,12 @@ class Logger:
                     level, message
                 )
                 return
-            backend.opt(depth=depth, exception=exception).log(level, message, *args, **fields)
+            if sections:
+                backend.bind(**fields).opt(depth=depth, exception=exception).log(
+                    level, message, *args
+                )
+            else:
+                backend.opt(depth=depth, exception=exception).log(level, message, *args, **fields)
 
     def log(self, level: Level, message: RenderableType, *args: object, **fields: object) -> None:
         """Log a message at a supported severity.
