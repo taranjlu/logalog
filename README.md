@@ -251,7 +251,30 @@ uv build --no-sources
 ```
 
 With `just` available, use `just check`, `just test`, and `just build`.
-Use `just test-matrix` to test each supported Python version in a separate environment.
+`just check` runs Ruff, Ty, Complexipy, Deptry, Vulture, Bandit, and pip-audit.
+Use `just lint` for local static checks. `just security` needs network access
+for its audit of locked runtime dependencies. Development tools are not runtime dependencies.
+
+Complexipy compares functions against `complexipy-snapshot.json` and a threshold of 15.
+The baseline records existing complexity in `command`, `_controls`, and `_emit`.
+Review those functions before replacing the baseline with `uv run complexipy --snapshot-create`.
+Do not update it only to make a check pass. Vulture checks source and tests at 90% confidence.
+Bandit reports findings with at least medium severity and medium confidence.
+
+Pytest Randomly changes test order and reports its seed. Use `just test-random 42`
+to repeat a seed. Hypothesis checks module-name encoding across Unicode inputs.
+Pytest Asyncio runs coroutine tests in strict mode with function-scoped event loops.
+Pytest Sugar supplies interactive progress. Use `just test-spec` for specification
+output; that command disables Sugar to prevent conflicting output formats.
+Use `just matrix` to run the Python 3.11–3.14 tests through Nox and uv.
+The four Python sessions run concurrently; tests within each session remain sequential.
+Each session keeps coverage data, the pytest cache, and Hypothesis data in its own
+`.nox/tests-3-XX/test-artifacts/` directory and independently enforces 100% coverage.
+Nox currently labels parallel execution experimental.
+Use `uv run nox --parallel 1` for sequential sessions.
+`just test-matrix` remains an alias. Nox reuses isolated environments, installs
+from the frozen lockfile, and fails if a required interpreter is missing.
+Use `uv run nox -s tests-3.12 -- --randomly-seed=42` to select a session and pass pytest arguments.
 Tests cover output, caller information, exceptions, runtime type checks, threads, import safety, and application handler isolation.
 
 Full test runs fail below 100% line and branch coverage of `malideiter`.

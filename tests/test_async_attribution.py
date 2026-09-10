@@ -24,7 +24,8 @@ async def _body(helper: Callable[[], None], error: BaseException | None) -> None
 
 @pytest.mark.parametrize("synchronous", [False, True])
 @pytest.mark.parametrize("error", [None, ValueError("async failure"), asyncio.CancelledError()])
-def test_async_source_and_live_controls(
+@pytest.mark.asyncio
+async def test_async_source_and_live_controls(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, synchronous: bool, error: BaseException | None
 ) -> None:
     """Retain lifecycle identity without overriding body or helper attribution."""
@@ -54,7 +55,7 @@ def test_async_source_and_live_controls(
         monkeypatch.setenv(silence, "0")
         await asyncio.create_task(decorated(helper, None))
 
-    asyncio.run(drive())
+    await drive()
     log.info("outside event")
     log.shutdown()
     records = [json.loads(line)["record"] for line in path.read_text().splitlines()]
@@ -79,7 +80,8 @@ def test_async_source_and_live_controls(
 
 
 @pytest.mark.parametrize("synchronous", [False, True])
-def test_async_partial_preserves_source(tmp_path: Path, synchronous: bool) -> None:
+@pytest.mark.asyncio
+async def test_async_partial_preserves_source(tmp_path: Path, synchronous: bool) -> None:
     """Find source data without changing a partially bound coroutine call."""
     path = tmp_path / "partial.jsonl"
     log = Logger(synchronous=synchronous, files=(FileDestination(path, kind="json"),))
@@ -88,7 +90,7 @@ def test_async_partial_preserves_source(tmp_path: Path, synchronous: bool) -> No
         return value
 
     decorated = log(partial(task, "result"))
-    assert asyncio.run(decorated()) == "result"
+    assert await decorated() == "result"
     log.shutdown()
     records = [json.loads(line)["record"] for line in path.read_text().splitlines()]
     assert len(records) == 2

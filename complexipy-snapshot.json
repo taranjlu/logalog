@@ -1,0 +1,20 @@
+[
+  {
+    "path": "src/malideiter/_logger.py",
+    "file_name": "_logger.py",
+    "functions": [
+      {
+        "name": "Logger::command",
+        "complexity": 20
+      },
+      {
+        "name": "_controls",
+        "complexity": 29
+      },
+      {
+        "name": "Logger::_emit",
+        "complexity": 43
+      }
+    ]
+  }
+]

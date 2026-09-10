@@ -105,7 +105,8 @@ def _read(path: Path) -> object:
     if path.suffix == ".json":
         return json.loads(text, object_pairs_hook=_pairs)
     if path.suffix in {".yaml", ".yml"}:
-        return yaml.load(text, Loader=_UniqueSafeLoader)  # noqa: S506 -- SafeLoader subclass.
+        # The private SafeLoader subclass also rejects duplicate keys.
+        return yaml.load(text, Loader=_UniqueSafeLoader)  # noqa: S506 # nosec B506
     raise ValueError("Supported configuration suffixes are .toml, .json, .yaml, and .yml")
 
 
