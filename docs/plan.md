@@ -1,6 +1,8 @@
 # malideiter development plan
 
-Status: Draft for review. This change adds no logging implementation.
+Status: Historical design reference. The seven implementation layers are complete.
+Use [the checklist](checklist.md) and [the README](../README.md) for current behavior.
+Their accepted decisions replace proposals in this document.
 Research date: 2026-09-09.
 
 ## Goal

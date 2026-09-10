@@ -5,8 +5,8 @@ It uses Loguru, Rich, and Beartype.
 
 ## Status
 
-The first six layers provide typed logging, Rich stderr output, and live environment controls.
-They also provide text and JSON Lines files and explicit configuration loading.
+The seven implemented layers provide typed logging, Rich output, and live environment controls.
+They also provide files, configuration loading, sections, decorators, and command display.
 Delivery uses Loguru's queue by default. A synchronous override is available.
 No package release or public repository exists as part of this setup.
 
@@ -103,7 +103,8 @@ Stored controls supply defaults. Live environment values still take priority at
 the same scope on every call. Explicit `LOG.configure()` delivery arguments take
 priority over loaded delivery settings.
 
-Text files contain plain, unwrapped records. JSON Lines uses Loguru's native `text`
+Text files keep ordinary messages unwrapped. Rich snapshots retain their rendered layout.
+JSON Lines uses Loguru's native `text`
 and `record` fields. Both formats retain exception details without local variable values.
 Initial setup failures close earlier sinks, but can leave empty files.
 
@@ -148,6 +149,10 @@ def update() -> None:
 `@LOG` supports ordinary synchronous and asynchronous functions. It preserves returns,
 exceptions, and function metadata. It does not support generators or asynchronous
 generators. It does not log function arguments.
+
+Async lifecycle messages use the decorated function's definition location and module
+controls, including when the event loop schedules the function. Body messages keep
+their own caller locations. Synchronous lifecycle messages keep the call site.
 
 Use `LOG.command(["tool", "--token", token], cwd="work", redact_indices=(2,))` to
 display a command and its planned working directory. The helper uses the POSIX or
@@ -202,6 +207,23 @@ Do not use Python `-O` or `-OO`. Beartype disables runtime checks in those modes
 
 Use the [build checklist](docs/checklist.md) for the next work chunks.
 Keep the [development plan](docs/plan.md) as reference material.
+
+## Runnable example
+
+From the repository root, run:
+
+```bash
+uv run python examples/workflow.py
+```
+
+The example merges TOML and JSON settings. It runs concurrent tasks, renders a
+table, changes a live debug control, and displays a redacted command. It also
+logs and handles a deliberate exception. Exit code 0 shows completion.
+
+Output goes to stderr and `examples/logs/workflow.log` and `examples/logs/workflow.jsonl`.
+Repeated runs append records. Rotation limits each active file to about 10 MB
+and retains two archives. The displayed command does not run.
+The example restores its process-local debug setting and closes the logger.
 
 ## Structure
 

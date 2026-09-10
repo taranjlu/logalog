@@ -25,7 +25,8 @@ dev = [
 ]
 
 [tool.uv.build-backend]
-source-include = ["tests/**", "docs/**", "AGENTS.md", "justfile", "mise.toml"]
+source-include = ["tests/**", "docs/**", "examples/**", "AGENTS.md", "justfile", "mise.toml"]
+source-exclude = ["/examples/logs"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

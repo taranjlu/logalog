@@ -18,5 +18,8 @@ build/
 dist/
 *.egg-info/
 
+# Generated example logs
+/examples/logs/
+
 # Operating system files
 .DS_Store

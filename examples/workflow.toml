@@ -1,0 +1,12 @@
+prefix = "MALIDEITER_EXAMPLE"
+
+[[files]]
+path = "logs/workflow.log"
+rotation = "10 MB"
+retention = 2
+
+[[files]]
+path = "logs/workflow.jsonl"
+kind = "json"
+rotation = "10 MB"
+retention = 2

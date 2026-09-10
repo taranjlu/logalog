@@ -3,17 +3,17 @@
 import re
 from collections.abc import Callable, Iterable, Sequence
 from contextvars import ContextVar, Token
-from functools import cache, wraps
+from functools import cache, partial, wraps
 from inspect import currentframe, isasyncgenfunction, iscoroutinefunction, isgeneratorfunction
 from os import PathLike, environ, fspath, getpid
 from os import name as os_name
-from os.path import normcase, realpath
+from os.path import basename, normcase, realpath
 from shlex import join as shell_join
 from subprocess import list2cmdline
 from threading import RLock
 from time import monotonic
-from types import TracebackType
-from typing import Literal, ParamSpec, TypeVar, cast, overload
+from types import FunctionType, TracebackType
+from typing import Literal, NamedTuple, ParamSpec, TypeVar, cast, overload
 
 from beartype import beartype
 from loguru._logger import Logger as LoguruLogger
@@ -34,6 +34,15 @@ _FALSE = frozenset({"0", "false", "no", "off"})
 _REDACTED = "[REDACTED]"
 
 
+class _Source(NamedTuple):
+    """Store stable source data for an asynchronous lifecycle."""
+
+    module: str
+    function: str
+    path: str
+    line: int
+
+
 @beartype
 def _quote_command(arguments: Sequence[str], *, windows: bool = os_name == "nt") -> str:
     """Quote an argument vector for the selected platform convention."""
@@ -44,10 +53,13 @@ def _quote_command(arguments: Sequence[str], *, windows: bool = os_name == "nt")
 class _Section:
     """Manage one logger section without changing exception behavior."""
 
-    def __init__(self, logger: "Logger", title: str, elapsed: bool) -> None:
+    def __init__(
+        self, logger: "Logger", title: str, elapsed: bool, source: _Source | None = None
+    ) -> None:
         self._logger = logger
         self._title = title
         self._elapsed = elapsed
+        self._source = source
         self._token: Token[tuple[str, ...]] | None = None
         self._started = 0.0
 
@@ -58,7 +70,10 @@ class _Section:
         self._token = self._logger._sections.set(context)
         self._started = monotonic()
         try:
-            self._logger.info("▶ {}", self._title)
+            if self._source is None:
+                self._logger.info("▶ {}", self._title)
+            else:
+                self._logger._emit("INFO", "▶ {}", (self._title,), {}, source=self._source)
         except BaseException:
             self._logger._sections.reset(self._token)
             self._token = None
@@ -77,9 +92,24 @@ class _Section:
             duration = monotonic() - self._started
             suffix = f" ({duration:.3f} s)" if self._elapsed else ""
             if exception_type is None:
-                self._logger.success("✓ {}{}", self._title, suffix)
+                if self._source is None:
+                    self._logger.success("✓ {}{}", self._title, suffix)
+                else:
+                    self._logger._emit(
+                        "SUCCESS", "✓ {}{}", (self._title, suffix), {}, source=self._source
+                    )
             else:
-                self._logger.exception("✗ {}{}", self._title, suffix)
+                if self._source is None:
+                    self._logger.exception("✗ {}{}", self._title, suffix)
+                else:
+                    self._logger._emit(
+                        "ERROR",
+                        "✗ {}{}",
+                        (self._title, suffix),
+                        {},
+                        exception=True,
+                        source=self._source,
+                    )
         except BaseException:
             if exception_type is None:
                 raise
@@ -365,10 +395,20 @@ class Logger:
             raise TypeError("LOG does not support generator functions")
         name = getattr(function, "__qualname__", type(function).__qualname__)
         if iscoroutinefunction(function):
+            target = function
+            while isinstance(target, partial):
+                target = target.func
+            code = cast(FunctionType, target).__code__
+            source = _Source(
+                cast(str, getattr(target, "__module__", "__main__")),
+                code.co_name,
+                code.co_filename,
+                code.co_firstlineno,
+            )
 
             @wraps(function)
             async def asynchronous(*args: P.args, **kwargs: P.kwargs) -> R:
-                with self.section(name, elapsed=elapsed):
+                with _Section(self, name, elapsed, source):
                     return await function(*args, **kwargs)
 
             return cast(Callable[P, R], asynchronous)
@@ -455,6 +495,7 @@ class Logger:
         fields: dict[str, object],
         *,
         exception: bool = False,
+        source: _Source | None = None,
     ) -> None:
         """Preserve the external caller through library and Beartype wrappers."""
         with self._lock:
@@ -470,7 +511,13 @@ class Logger:
                     depth += 1
                     frame = frame.f_back
                 module = (
-                    cast(str, frame.f_globals.get("__name__", "__main__")) if frame else "__main__"
+                    source.module
+                    if source
+                    else (
+                        cast(str, frame.f_globals.get("__name__", "__main__"))
+                        if frame
+                        else "__main__"
+                    )
                 )
             finally:
                 del frame
@@ -519,6 +566,15 @@ class Logger:
                     message = snapshot.plain.removesuffix("\n")
                 fields[_RICH_SNAPSHOT] = snapshot
             backend = self._get_backend()
+            if source is not None:
+                backend = backend.patch(
+                    lambda record: record.update(
+                        name=source.module,
+                        function=source.function,
+                        file=type(record["file"])(basename(source.path), source.path),
+                        line=source.line,
+                    )
+                )
             if _RICH_SNAPSHOT in fields:
                 backend.bind(**fields).opt(depth=depth, exception=exception).log(level, message)
                 fields.pop(_RICH_SNAPSHOT)

@@ -132,6 +132,21 @@ through 3.14 and in an isolated wheel installation. Formatting, lint, types,
 builds, and mechanical writing checks pass. Independent review found no blocking
 issues. The README documents type-error and command-display limits.
 
+## Integration verification
+
+The runnable example combines configuration merging, live controls, concurrent
+sections, Rich tables, command redaction, exception recovery, and shutdown.
+Tests run it in queued and synchronous modes.
+
+Async decorator lifecycle records now use the decorated function's source module.
+This rule also selects the correct live module controls. Body records keep their
+own source locations. Tests cover partial functions, failures, and cancellation.
+
+Verification: 173 tests pass with 100% line and branch coverage on Python 3.11
+through 3.14 and against an isolated wheel. The source archive contains the
+example files but excludes generated example logs. The runtime dependency audit
+found no known vulnerabilities. Independent review and mechanical writing checks pass.
+
 ## Rules for every chunk
 
 - Keep each chunk usable and tested before starting the next layer.
