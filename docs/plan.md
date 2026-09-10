@@ -9,6 +9,10 @@ Research date: 2026-09-09.
 
 Build a Python logging library with one import, readable Rich output, and dependable queued output across threads and processes.
 Use `malideiter` as the temporary repository, distribution, and import name.
+The chosen public name is Logalog.
+Use `logalog` for the public repository, distribution, and import name.
+Replace the code name only when you publish the library.
+The code name is confusing and has poor search results.
 
 The intended entry point is:
 
@@ -402,7 +406,9 @@ Approve shared console access and the default rotation and retention policy for 
 
 Specify where every data item needs validation. Define the supported Python versions and operating systems.
 
-Choose a license before public distribution. Check name availability before replacing the code name or publishing.
+Choose a license before public distribution.
+The chosen public name is Logalog (`logalog`).
+Check name availability again before you replace the code name or publish.
 
 ## Sources
 

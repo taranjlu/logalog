@@ -1,7 +1,12 @@
 # malideiter
 
-`malideiter` is the temporary name for a Python logging library.
+`malideiter` is the temporary code name for a Python logging library.
 It uses Loguru, Rich, and Beartype.
+The public name is Logalog.
+Use `logalog` for the public repository, distribution, and import name.
+Keep `malideiter` until you publish the library.
+The code name is confusing and has poor search results.
+Check name availability again before you publish.
 
 ## Status
 
@@ -302,3 +307,4 @@ Test the adapter before changing that range.
 
 Add one working layer at a time.
 Choose the license before public distribution.
+Replace the code name with Logalog only when you publish the library.
