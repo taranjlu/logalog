@@ -10,6 +10,10 @@ check:
 test:
     uv run pytest
 
+# Run the focused image regression checks.
+test-images:
+    uv run pytest --no-cov tests/test_visual.py
+
 # Write an HTML coverage report to htmlcov/index.html.
 coverage:
     uv run pytest --cov-report=html

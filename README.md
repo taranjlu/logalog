@@ -255,6 +255,10 @@ Tests cover output, caller information, exceptions, runtime type checks, threads
 Full test runs fail below 100% line and branch coverage of `malideiter`.
 Coverage includes subprocess execution.
 Use `just coverage` to write an HTML report to `htmlcov/index.html`.
+Use `just test-images` for the initial OpenImageIO image checks.
+They compare queued and synchronous output against one reference PNG.
+See [image test guidance](tests/visual/README.md) for fonts and reference updates.
+
 For focused tests, use `uv run pytest --no-cov <test-path>`.
 Run the full suite before you finish a change. Do not add exclusions to reach the coverage target.
 
