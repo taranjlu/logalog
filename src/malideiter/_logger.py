@@ -549,10 +549,13 @@ class Logger:
                     raise ValueError("Rich renderables do not accept format arguments")
                 if self._renderer is None:
                     self._renderer = Console(stderr=True, markup=False, highlight=False)
+                options = self._renderer.options
+                if sections:
+                    options = options.update_width(max(1, options.max_width - len(indentation)))
                 snapshot = Text.assemble(
                     *(
                         (segment.text, segment.style) if segment.style else segment.text
-                        for segment in self._renderer.render(message)
+                        for segment in self._renderer.render(message, options)
                     )
                 )
                 message = snapshot.plain.removesuffix("\n")

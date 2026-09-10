@@ -11,9 +11,10 @@ from typing import Literal, cast
 from beartype import beartype
 from loguru._logger import Core, Logger
 from loguru._recattrs import RecordException
-from rich.console import Console, ConsoleRenderable
+from rich.console import Console, ConsoleRenderable, Group
 from rich.logging import RichHandler
 from rich.text import Text
+from rich.traceback import Traceback
 
 _RICH_SNAPSHOT = "__malideiter_rich_snapshot__"
 _RICH_PLAIN = "__malideiter_rich_plain__"
@@ -27,6 +28,26 @@ class _SnapshotHandler(RichHandler):
         """Return the accepted snapshot without parsing message markup."""
         snapshot = cast(dict[str, object], record.__dict__["extra"]).get(_RICH_SNAPSHOT)
         return snapshot if isinstance(snapshot, Text) else super().render_message(record, message)
+
+    def render(
+        self,
+        *,
+        record: LogRecord,
+        traceback: Traceback | None,
+        message_renderable: ConsoleRenderable,
+    ) -> ConsoleRenderable:
+        """Keep producer-rendered snapshots outside the narrower metadata columns."""
+        if _RICH_SNAPSHOT not in cast(dict[str, object], record.__dict__["extra"]):
+            return super().render(
+                record=record,
+                traceback=traceback,
+                message_renderable=message_renderable,
+            )
+        header = super().render(record=record, traceback=None, message_renderable=Text(""))
+        content = [header, message_renderable]
+        if traceback is not None:
+            content.append(traceback)
+        return Group(*content)
 
 
 @beartype

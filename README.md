@@ -41,7 +41,9 @@ LOG.info(table, task_id=17)
 LOG.info(Syntax("value = '{literal}'", "python"))
 ```
 
-The console keeps Rich styles and wraps at the producer console width. Text files get
+Rich objects appear below their log header and use the full console width.
+The producer reserves room for section indentation before it renders an object.
+Ordinary strings remain beside their log metadata. Text files get
 plain readable output. JSON records contain the same plain message and user fields.
 They do not contain ANSI sequences or private Rich objects. Suppressed events do not
 render their content.
@@ -255,8 +257,9 @@ Tests cover output, caller information, exceptions, runtime type checks, threads
 Full test runs fail below 100% line and branch coverage of `malideiter`.
 Coverage includes subprocess execution.
 Use `just coverage` to write an HTML report to `htmlcov/index.html`.
-Use `just test-images` for the initial OpenImageIO image checks.
-They compare queued and synchronous output against one reference PNG.
+Use `just test-images` for the OpenImageIO visual regression checks.
+They cover levels, wrapping, indentation, tables, styles, code, and commands
+at multiple widths in both delivery modes.
 See [image test guidance](tests/visual/README.md) for fonts and reference updates.
 
 For focused tests, use `uv run pytest --no-cov <test-path>`.

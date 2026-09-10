@@ -123,13 +123,17 @@ def test_render_error_rejects_event_before_backend() -> None:
     log.shutdown()
 
 
+@pytest.mark.parametrize("synchronous", [False, True])
 def test_rich_exception_and_format_argument_rules(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], synchronous: bool
 ) -> None:
     """Keep queued traceback details and reject ambiguous Rich formatting."""
     text_path = tmp_path / "exception.log"
     json_path = tmp_path / "exception.jsonl"
-    log = Logger(files=(FileDestination(text_path), FileDestination(json_path, kind="json")))
+    log = Logger(
+        synchronous=synchronous,
+        files=(FileDestination(text_path), FileDestination(json_path, kind="json")),
+    )
     with pytest.raises(ValueError, match="format arguments"):
         log.info(Text("content"), "unused")
     try:
@@ -139,7 +143,8 @@ def test_rich_exception_and_format_argument_rules(
     log.shutdown()
 
     output = capsys.readouterr().err
-    assert "rich-failure" in output.splitlines()[0]
+    assert "ERROR" in output.splitlines()[0]
+    assert output.count("rich-failure") == 1
     assert "Traceback" in output
     assert "RuntimeError" in output
     assert "rich-exception-marker" in output
