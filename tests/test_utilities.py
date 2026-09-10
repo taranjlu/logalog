@@ -112,7 +112,7 @@ def test_section_logging_failures_restore_context_and_preserve_body_error(
     log = Logger(synchronous=True)
     section = log.section("failed")
     monkeypatch.setattr(
-        log, "info", lambda *args, **kwargs: (_ for _ in ()).throw(OSError("enter"))
+        log, "_emit", lambda *args, **kwargs: (_ for _ in ()).throw(OSError("enter"))
     )
     with pytest.raises(OSError, match="enter"):
         section.__enter__()
@@ -120,7 +120,11 @@ def test_section_logging_failures_restore_context_and_preserve_body_error(
 
     monkeypatch.undo()
     monkeypatch.setattr(
-        log, "exception", lambda *args, **kwargs: (_ for _ in ()).throw(OSError("exit"))
+        log,
+        "_emit",
+        lambda *args, **kwargs: (
+            (_ for _ in ()).throw(OSError("exit")) if args[0] == "ERROR" else None
+        ),
     )
     with pytest.raises(ValueError, match="body"):
         with section:
@@ -129,7 +133,11 @@ def test_section_logging_failures_restore_context_and_preserve_body_error(
 
     monkeypatch.undo()
     monkeypatch.setattr(
-        log, "exception", lambda *args, **kwargs: (_ for _ in ()).throw(OSError("exit"))
+        log,
+        "_emit",
+        lambda *args, **kwargs: (
+            (_ for _ in ()).throw(OSError("exit")) if args[0] == "ERROR" else None
+        ),
     )
     with pytest.raises(asyncio.CancelledError):
         with section:
@@ -140,7 +148,7 @@ def test_section_logging_failures_restore_context_and_preserve_body_error(
     with pytest.raises(OSError, match="exit"):
         with section:
             monkeypatch.setattr(
-                log, "success", lambda *args, **kwargs: (_ for _ in ()).throw(OSError("exit"))
+                log, "_emit", lambda *args, **kwargs: (_ for _ in ()).throw(OSError("exit"))
             )
     assert log._sections.get() == ()
     log.shutdown()

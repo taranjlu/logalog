@@ -70,10 +70,7 @@ class _Section:
         self._token = self._logger._sections.set(context)
         self._started = monotonic()
         try:
-            if self._source is None:
-                self._logger.info("▶ {}", self._title)
-            else:
-                self._logger._emit("INFO", "▶ {}", (self._title,), {}, source=self._source)
+            self._logger._emit("INFO", "▶ {}", (self._title,), {}, source=self._source)
         except BaseException:
             self._logger._sections.reset(self._token)
             self._token = None
@@ -91,25 +88,15 @@ class _Section:
         try:
             duration = monotonic() - self._started
             suffix = f" ({duration:.3f} s)" if self._elapsed else ""
-            if exception_type is None:
-                if self._source is None:
-                    self._logger.success("✓ {}{}", self._title, suffix)
-                else:
-                    self._logger._emit(
-                        "SUCCESS", "✓ {}{}", (self._title, suffix), {}, source=self._source
-                    )
-            else:
-                if self._source is None:
-                    self._logger.exception("✗ {}{}", self._title, suffix)
-                else:
-                    self._logger._emit(
-                        "ERROR",
-                        "✗ {}{}",
-                        (self._title, suffix),
-                        {},
-                        exception=True,
-                        source=self._source,
-                    )
+            failed = exception_type is not None
+            self._logger._emit(
+                "ERROR" if failed else "SUCCESS",
+                "✗ {}{}" if failed else "✓ {}{}",
+                (self._title, suffix),
+                {},
+                exception=failed,
+                source=self._source,
+            )
         except BaseException:
             if exception_type is None:
                 raise
@@ -193,22 +180,19 @@ def _controls(
     values = [defaults[0], defaults[1], False]
     module_parts = module.split(".")
     for scope_index, scope in enumerate(_control_names(module, prefix)):
-        scope_silent = defaults[2] if scope_index == 0 else False
-        if scope_index and (stored := module_defaults.get(".".join(module_parts[:scope_index]))):
-            for index, enabled in enumerate(stored):
-                if enabled is not None:
-                    if index == 2:
-                        scope_silent = enabled
-                    else:
-                        values[index] = enabled
+        stored = (
+            defaults
+            if scope_index == 0
+            else module_defaults.get(".".join(module_parts[:scope_index]), (None, None, None))
+        )
         for index, name in enumerate(scope):
-            if (value := environ.get(name)) is not None:
-                enabled = _boolean(name, value)
+            raw = environ.get(name)
+            enabled = _boolean(name, raw) if raw is not None else stored[index]
+            if enabled is not None:
                 if index == 2:
-                    scope_silent = enabled
+                    values[index] |= enabled
                 else:
                     values[index] = enabled
-        values[2] |= scope_silent
     return cast(tuple[bool, bool, bool], tuple(values))
 
 
@@ -528,13 +512,11 @@ class Logger:
             if silent or (level == "VERBOSE" and not verbose) or (level == "DEBUG" and not debug):
                 return
 
+            if isinstance(message, str) and (args or fields):
+                message = message.format(*args, **fields)
+                args = ()
             sections = self._sections.get()
-            formatted = False
             if sections:
-                if isinstance(message, str) and (args or fields):
-                    message = message.format(*args, **fields)
-                    args = ()
-                    formatted = True
                 fields |= {
                     "section_depth": len(sections),
                     "section": sections[-1],
@@ -585,8 +567,6 @@ class Logger:
                 backend.bind(**fields).opt(depth=depth, exception=exception).log(level, message)
                 return
             if exception:
-                if not formatted and not sections and (args or fields):
-                    message = message.format(*args, **fields)
                 backend.bind(**fields, **{_CONSOLE_ONLY: True}).opt(
                     depth=depth, exception=True
                 ).log(level, message)
@@ -594,12 +574,7 @@ class Logger:
                     level, message
                 )
                 return
-            if sections:
-                backend.bind(**fields).opt(depth=depth, exception=exception).log(
-                    level, message, *args
-                )
-            else:
-                backend.opt(depth=depth, exception=exception).log(level, message, *args, **fields)
+            backend.bind(**fields).opt(depth=depth, exception=exception).log(level, message)
 
     def log(self, level: Level, message: RenderableType, *args: object, **fields: object) -> None:
         """Log a message at a supported severity.

@@ -4,16 +4,16 @@
     "file_name": "_logger.py",
     "functions": [
       {
+        "name": "_controls",
+        "complexity": 16
+      },
+      {
         "name": "Logger::command",
         "complexity": 20
       },
       {
-        "name": "_controls",
-        "complexity": 29
-      },
-      {
         "name": "Logger::_emit",
-        "complexity": 43
+        "complexity": 34
       }
     ]
   }
