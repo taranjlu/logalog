@@ -20,7 +20,7 @@ from loguru._logger import Logger as LoguruLogger
 from rich.console import Console, RenderableType
 from rich.text import Text
 
-from ._backend import _CONSOLE_ONLY, _RICH_PLAIN, _RICH_SNAPSHOT, FileDestination, create_backend
+from ._backend import _RICH_SNAPSHOT, FileDestination, create_backend
 from ._configuration import Configuration, ConfigurationError
 
 Level = Literal["TRACE", "DEBUG", "VERBOSE", "INFO", "SUCCESS", "WARNING", "ERROR", "CRITICAL"]
@@ -560,20 +560,6 @@ class Logger:
                         line=source.line,
                     )
                 )
-            if _RICH_SNAPSHOT in fields:
-                backend.bind(**fields).opt(depth=depth, exception=exception).log(level, message)
-                fields.pop(_RICH_SNAPSHOT)
-                fields[_RICH_PLAIN] = True
-                backend.bind(**fields).opt(depth=depth, exception=exception).log(level, message)
-                return
-            if exception:
-                backend.bind(**fields, **{_CONSOLE_ONLY: True}).opt(
-                    depth=depth, exception=True
-                ).log(level, message)
-                backend.bind(**fields, **{_RICH_PLAIN: True}).opt(depth=depth, exception=True).log(
-                    level, message
-                )
-                return
             backend.bind(**fields).opt(depth=depth, exception=exception).log(level, message)
 
     def log(self, level: Level, message: RenderableType, *args: object, **fields: object) -> None:

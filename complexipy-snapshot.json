@@ -13,7 +13,7 @@
       },
       {
         "name": "Logger::_emit",
-        "complexity": 34
+        "complexity": 32
       }
     ]
   }

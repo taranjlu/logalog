@@ -6,19 +6,22 @@ from functools import partial
 from logging import LogRecord
 from os import PathLike
 from traceback import TracebackException
-from typing import Literal, cast
+from typing import TYPE_CHECKING, Literal, cast
 
 from beartype import beartype
 from loguru._logger import Core, Logger
 from loguru._recattrs import RecordException
+from loguru._simple_sinks import StandardSink
 from rich.console import Console, ConsoleRenderable, Group
 from rich.logging import RichHandler
 from rich.text import Text
 from rich.traceback import Traceback
 
 _RICH_SNAPSHOT = "__malideiter_rich_snapshot__"
-_RICH_PLAIN = "__malideiter_rich_plain__"
-_CONSOLE_ONLY = "__malideiter_console_only__"
+_CONSOLE_TRACEBACK = "__malideiter_console_traceback__"
+
+if TYPE_CHECKING:
+    from loguru import Message
 
 
 class _SnapshotHandler(RichHandler):
@@ -100,38 +103,41 @@ def _message_format(record: Mapping[str, object]) -> str:
     return "{message}"
 
 
-@beartype
-def _preserve_queued_traceback(record: dict[str, object]) -> bool:
-    """Render a traceback before Loguru removes it during queue pickling."""
-    exception = cast(RecordException | None, record["exception"])
-    if exception is None or exception.type is None:
-        return True
-    traceback = "".join(
-        TracebackException(exception.type, exception.value, exception.traceback).format()
-    ).rstrip()
-    record["message"] = f"{record['message']}\n{traceback}"
-    snapshot = cast(dict[str, object], record["extra"]).get(_RICH_SNAPSHOT)
-    if isinstance(snapshot, Text):
-        snapshot.append(f"\n{traceback}")
-    record["exception"] = None
-    return True
-
-
-def _plain_record(record: dict[str, object]) -> bool:
-    """Accept only plain records in native file destinations."""
+def _prepare_console(record: dict[str, object], *, enqueue: bool) -> None:
+    """Keep presentation data outside native JSON fields without mutating the event."""
     extra = cast(dict[str, object], record["extra"])
-    if _RICH_SNAPSHOT in extra or _CONSOLE_ONLY in extra:
-        return False
-    extra.pop(_RICH_PLAIN, None)
-    return True
+    record[_RICH_SNAPSHOT] = extra.pop(_RICH_SNAPSHOT, None)
+    exception = cast(RecordException | None, record["exception"])
+    if enqueue and exception is not None and exception.type is not None:
+        record[_CONSOLE_TRACEBACK] = "".join(
+            TracebackException(exception.type, exception.value, exception.traceback).format()
+        ).rstrip()
 
 
-@beartype
-def _console_record(record: dict[str, object], *, enqueue: bool) -> bool:
-    """Accept console records and prepare queued tracebacks."""
-    if _RICH_PLAIN in cast(dict[str, object], record["extra"]):
-        return False
-    return _preserve_queued_traceback(record) if enqueue else True
+class _ConsoleSink(StandardSink):
+    """Present a destination-local copy through Loguru's existing logging adapter."""
+
+    def __init__(self, handler: _SnapshotHandler, enqueue: bool) -> None:
+        super().__init__(handler)
+        self._enqueue = enqueue
+
+    def write(self, message: "Message") -> None:
+        record = message.record.copy()
+        record["extra"] = dict(record["extra"])
+        presentation = cast(dict[str, object], record)
+        snapshot = presentation.get(_RICH_SNAPSHOT)
+        text = record["message"]
+        if self._enqueue and (traceback := presentation.get(_CONSOLE_TRACEBACK)):
+            text = f"{text}\n{traceback}"
+            if isinstance(snapshot, Text):
+                snapshot = snapshot.copy()
+                snapshot.append(f"\n{traceback}")
+            record["exception"] = None
+        if isinstance(snapshot, Text):
+            record["extra"][_RICH_SNAPSHOT] = snapshot
+        display = type(message)(text)
+        display.record = record
+        super().write(display)
 
 
 @beartype
@@ -164,6 +170,7 @@ def create_backend(*, enqueue: bool = True, files: Sequence[FileDestination] = (
         extra={},
     )
     backend.level("VERBOSE", no=15, color="<blue>", icon="")
+    backend = backend.patch(partial(_prepare_console, enqueue=enqueue))
     try:
         console = Console(stderr=True, markup=False, highlight=False)
         handler = _SnapshotHandler(
@@ -177,7 +184,7 @@ def create_backend(*, enqueue: bool = True, files: Sequence[FileDestination] = (
             keywords=[],
         )
         backend.add(
-            handler,
+            _ConsoleSink(handler, enqueue),
             level=0,
             format=_message_format,
             colorize=False,
@@ -185,7 +192,6 @@ def create_backend(*, enqueue: bool = True, files: Sequence[FileDestination] = (
             backtrace=False,
             diagnose=False,
             catch=False,
-            filter=partial(_console_record, enqueue=enqueue),
         )
         for destination in files:
             backend.add(
@@ -209,7 +215,6 @@ def create_backend(*, enqueue: bool = True, files: Sequence[FileDestination] = (
                 mode=destination.mode,
                 encoding=destination.encoding,
                 buffering=destination.buffering,
-                filter=_plain_record,
             )
     except BaseException:
         backend.remove()

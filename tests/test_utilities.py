@@ -298,9 +298,9 @@ def test_section_formats_before_metadata_and_indents_every_line(
     assert no_newline["message"] == "  rich-no-newline"
     assert plain["extra"]["field"] == "kept"
     snapshot = next(
-        record.record["extra"][_RICH_SNAPSHOT]
+        record.record[_RICH_SNAPSHOT]
         for record in captured
-        if _RICH_SNAPSHOT in record.record["extra"]
+        if record.record[_RICH_SNAPSHOT] is not None
     )
     assert isinstance(snapshot, Text)
     assert snapshot.plain == "  rich-one\n  \n  rich-two"

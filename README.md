@@ -288,7 +288,12 @@ See [image test guidance](tests/visual/README.md) for fonts and reference update
 For focused tests, use `uv run pytest --no-cov <test-path>`.
 Run the full suite before you finish a change. Do not add exclusions to reach the coverage target.
 
+Each accepted call creates one Loguru event. Native file sinks retain its original
+message, exception, timestamp, and user fields. The console adapter changes only
+a local copy for presentation. Prepared console data stays outside JSON record fields.
+
 The backend adapter uses private Loguru constructors to create an independent logger.
+It also reuses Loguru's private `StandardSink` adapter for Rich output.
 Copying the shared logger can fail when an application has existing file handlers.
 The dependency range limits Loguru to `>=0.7.3,<0.8`.
 Test the adapter before changing that range.
