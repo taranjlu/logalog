@@ -6,7 +6,7 @@ from pathlib import Path
 
 from rich.table import Table
 
-from malideiter import LOG, load_configuration
+from logalog import LOG, load_configuration
 
 
 @LOG(elapsed=True)
@@ -27,7 +27,7 @@ def main() -> None:
     directory = Path(__file__).resolve().parent
     settings = load_configuration(directory / "workflow.toml", directory / "workflow.json")
     LOG.configure(configuration=settings)
-    debug_name = "MALIDEITER_EXAMPLE_DEBUG"
+    debug_name = "LOGALOG_EXAMPLE_DEBUG"
     previous_debug = environ.get(debug_name)
     try:
         with LOG.section("Workflow", elapsed=True):

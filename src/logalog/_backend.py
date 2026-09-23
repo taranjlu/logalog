@@ -17,8 +17,8 @@ from rich.logging import RichHandler
 from rich.text import Text
 from rich.traceback import Traceback
 
-_RICH_SNAPSHOT = "__malideiter_rich_snapshot__"
-_CONSOLE_TRACEBACK = "__malideiter_console_traceback__"
+_RICH_SNAPSHOT = "__logalog_rich_snapshot__"
+_CONSOLE_TRACEBACK = "__logalog_console_traceback__"
 
 if TYPE_CHECKING:
     from loguru import Message

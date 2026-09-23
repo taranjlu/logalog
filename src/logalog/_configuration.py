@@ -61,7 +61,7 @@ class Configuration:
     """Contain validated settings from explicit files."""
 
     synchronous: bool = False
-    prefix: str = "MALIDEITER"
+    prefix: str = "LOGALOG"
     verbose: bool = False
     debug: bool = False
     silent: bool = False
@@ -185,7 +185,7 @@ def _files(value: object, source: Path) -> tuple[FileDestination, ...]:
 def _validate(data: Mapping[str, object], source: Path) -> Configuration:
     """Convert a merged document to strict typed settings."""
     _keys(data, _ROOT_KEYS, source, "configuration")
-    prefix = data.get("prefix", "MALIDEITER")
+    prefix = data.get("prefix", "LOGALOG")
     if not isinstance(prefix, str) or re.fullmatch(r"[A-Z][A-Z0-9_]*", prefix) is None:
         raise ConfigurationError(f"{source}: invalid prefix")
     modules_data = _dict(data.get("modules", {}), source, "modules")
@@ -225,7 +225,7 @@ def load_configuration(*sources: str | PathLike[str]) -> Configuration:
     ----------
     *sources : str or PathLike[str]
         Explicit TOML, JSON, or YAML paths. A file named ``pyproject.toml``
-        loads only ``[tool.malideiter]``. Relative destination paths use the
+        loads only ``[tool.logalog]``. Relative destination paths use the
         directory of the file that supplies the final ``files`` list.
     """
     merged = Config({})
@@ -236,9 +236,9 @@ def load_configuration(*sources: str | PathLike[str]) -> Configuration:
             document = _dict(_read(path), path, "document")
             if path.name == "pyproject.toml":
                 document = _dict(
-                    _dict(document.get("tool", {}), path, "tool").get("malideiter", {}),
+                    _dict(document.get("tool", {}), path, "tool").get("logalog", {}),
                     path,
-                    "tool.malideiter",
+                    "tool.logalog",
                 )
             if "files" in document:
                 document = dict(document)

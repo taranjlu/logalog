@@ -11,9 +11,9 @@ import pytest
 from beartype.roar import BeartypeCallHintParamViolation
 from rich.text import Text
 
-from malideiter import FileDestination
-from malideiter._backend import _RICH_SNAPSHOT
-from malideiter._logger import Logger, _quote_command, _Section
+from logalog import FileDestination
+from logalog._backend import _RICH_SNAPSHOT
+from logalog._logger import Logger, _quote_command, _Section
 
 
 def test_nested_sections_reach_console_text_json_and_queue(
@@ -175,7 +175,7 @@ def test_elapsed_timer_uses_monotonic(
 ) -> None:
     """Show deterministic monotonic section time."""
     ticks = iter((4.0, 5.25))
-    monkeypatch.setattr("malideiter._logger.monotonic", lambda: next(ticks))
+    monkeypatch.setattr("logalog._logger.monotonic", lambda: next(ticks))
     log = Logger(synchronous=True)
     records = []
     log._get_backend().add(records.append, format="{message}")
@@ -341,7 +341,7 @@ def test_command_windows_validation_and_runtime_types(
 def test_suppressed_utilities_do_not_initialize(monkeypatch: pytest.MonkeyPatch) -> None:
     """Apply live controls before utility records reach the backend."""
     log = Logger()
-    monkeypatch.setenv("MALIDEITER_SILENT", "1")
+    monkeypatch.setenv("LOGALOG_SILENT", "1")
     with log.section("hidden"):
         log.info("hidden-body")
     log.command(["hidden-command"])

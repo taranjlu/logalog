@@ -12,8 +12,8 @@ from rich.syntax import Syntax
 from rich.table import Table
 from rich.text import Text
 
-from malideiter import FileDestination
-from malideiter._logger import Logger
+from logalog import FileDestination
+from logalog._logger import Logger
 
 
 def _table(value: str = "complete") -> Table:
@@ -104,7 +104,7 @@ def test_suppression_happens_before_rich_rendering(
     """Do no Rich work for a suppressed event."""
     content = _ObservedRenderable(fail=True)
     log = Logger()
-    monkeypatch.setenv("MALIDEITER_SILENT", "1")
+    monkeypatch.setenv("LOGALOG_SILENT", "1")
     log.info(content)
     assert content.calls == 0
     assert log._backend is None
@@ -161,7 +161,7 @@ def test_rich_snapshot_transfers_from_worker(tmp_path: Path, method: str) -> Non
     script = r"""
 import multiprocessing as mp
 import sys
-from malideiter import LOG, initialize_worker
+from logalog import LOG, initialize_worker
 from rich.table import Table
 
 def work(owner):

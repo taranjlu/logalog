@@ -1,4 +1,4 @@
-# malideiter build checklist
+# logalog build checklist
 
 Status: Chunks 1 through 7 are complete.
 
@@ -12,7 +12,7 @@ Build one working layer at a time. Resolve only the decisions that the current l
 - [x] Preserve message data and caller information without a large custom event framework.
 - [x] Test ordinary messages, exceptions, runtime type checks, and safe handler setup.
 
-Result: `from malideiter import LOG` works. Messages appear once, and unrelated application handlers remain unchanged.
+Result: `from logalog import LOG` works. Messages appear once, and unrelated application handlers remain unchanged.
 Use synchronous delivery for this first layer. Chunk 2 establishes the queued default.
 
 Verification: 30 tests pass on Python 3.11 through 3.14.

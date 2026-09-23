@@ -6,8 +6,8 @@ from pathlib import Path
 import pytest
 from rich.text import Text
 
-from malideiter import FileDestination
-from malideiter._logger import Logger
+from logalog import FileDestination
+from logalog._logger import Logger
 
 
 @pytest.mark.parametrize("synchronous", [False, True])

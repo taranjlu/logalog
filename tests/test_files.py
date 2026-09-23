@@ -14,8 +14,8 @@ from types import SimpleNamespace
 import pytest
 from beartype.roar import BeartypeCallHintParamViolation
 
-from malideiter import FileDestination
-from malideiter._logger import Logger
+from logalog import FileDestination
+from logalog._logger import Logger
 
 
 @pytest.mark.parametrize("synchronous", [False, True])
@@ -66,10 +66,10 @@ def test_delay_open_mode_and_silence_before_write(
     destination = FileDestination(path, delay=True, mode="w", encoding="utf-16")
     log = Logger(synchronous=True, files=(destination,))
     assert path.read_text() == "old\n"
-    monkeypatch.setenv("MALIDEITER_SILENT", "1")
+    monkeypatch.setenv("LOGALOG_SILENT", "1")
     log.info("hidden-marker")
     assert path.read_text() == "old\n"
-    monkeypatch.delenv("MALIDEITER_SILENT")
+    monkeypatch.delenv("LOGALOG_SILENT")
     log.info("written-marker")
     log.shutdown()
     assert "written-marker" in path.read_text(encoding="utf-16")
@@ -165,7 +165,7 @@ def test_workers_use_owner_file_writer(tmp_path: Path, method: str) -> None:
     script = r"""
 import multiprocessing as mp
 import sys
-from malideiter import FileDestination, LOG, initialize_worker
+from logalog import FileDestination, LOG, initialize_worker
 
 def work(owner, value):
     initialize_worker(owner)

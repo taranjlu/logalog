@@ -20,7 +20,7 @@ def test_workflow_example(tmp_path: Path, synchronous: bool) -> None:
         json.dumps({"verbose": True, "synchronous": synchronous})
     )
     environment = {
-        key: value for key, value in os.environ.items() if not key.startswith("MALIDEITER_EXAMPLE_")
+        key: value for key, value in os.environ.items() if not key.startswith("LOGALOG_EXAMPLE_")
     }
     result = subprocess.run(  # noqa: S603 -- Run the fixed repository example.
         [sys.executable, str(example / "workflow.py")],

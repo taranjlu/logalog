@@ -1,4 +1,4 @@
-# malideiter development plan
+# logalog development plan
 
 Status: Historical design reference. The seven implementation layers are complete.
 Use [the checklist](checklist.md) and [the README](../README.md) for current behavior.
@@ -8,16 +8,12 @@ Research date: 2026-09-09.
 ## Goal
 
 Build a Python logging library with one import, readable Rich output, and dependable queued output across threads and processes.
-Use `malideiter` as the temporary repository, distribution, and import name.
-The chosen public name is Logalog.
-Use `logalog` for the public repository, distribution, and import name.
-Replace the code name only when you publish the library.
-The code name is confusing and has poor search results.
+Use `logalog` for the repository, distribution, and import package.
 
 The intended entry point is:
 
 ```python
-from malideiter import LOG
+from logalog import LOG
 
 LOG.info("Task complete")
 LOG.debug("Diagnostic detail")
@@ -69,7 +65,7 @@ Proposed default: initialize logging on the first log call. Send Rich output to 
 Keep import silent. Do not start a queue worker or search for configuration files during import.
 
 Allow explicit configuration before first use, including an application-specific environment prefix.
-Default the prefix to `MALIDEITER`. Do not infer it from whichever module imports first.
+Default the prefix to `LOGALOG`. Do not infer it from whichever module imports first.
 
 Loguru shares one logger, and its documentation warns about handler changes from libraries.[2]
 A handler connects a logger to an output destination.
@@ -188,16 +184,16 @@ Provide both global and per-module versions of `VERBOSE`, `DEBUG`, and `SILENT`.
 Generate each module's variable names automatically from its full name. Do not make callers register these names.
 The global variables apply across modules. Module variables change behavior for the selected module under the inheritance rules below.
 
-Example for the prefix `MALIDEITER` and module `myapp.worker`:
+Example for the prefix `LOGALOG` and module `myapp.worker`:
 
 | Control | Global variable | Automatically generated module variable |
 | --- | --- | --- |
-| Verbose | `MALIDEITER_VERBOSE` | `MALIDEITER_MODULE__MYAPP__WORKER_VERBOSE` |
-| Debug | `MALIDEITER_DEBUG` | `MALIDEITER_MODULE__MYAPP__WORKER_DEBUG` |
-| Silent | `MALIDEITER_SILENT` | `MALIDEITER_MODULE__MYAPP__WORKER_SILENT` |
+| Verbose | `LOGALOG_VERBOSE` | `LOGALOG_MODULE__MYAPP__WORKER_VERBOSE` |
+| Debug | `LOGALOG_DEBUG` | `LOGALOG_MODULE__MYAPP__WORKER_DEBUG` |
+| Silent | `LOGALOG_SILENT` | `LOGALOG_MODULE__MYAPP__WORKER_SILENT` |
 
 Both scopes are requirements for every control. The exact module-name encoding remains a proposal.
-Substitute the configured prefix for `MALIDEITER`.
+Substitute the configured prefix for `LOGALOG`.
 
 Use independent on/off controls, not one minimum severity level.
 Loguru supports callable filters for each sink.[1]
@@ -268,7 +264,7 @@ Compare against a fixed-setting baseline. Select optimizations from measured res
 
 ## Configuration research
 
-Support `[tool.malideiter]` in `pyproject.toml` and separate TOML, YAML, and JSON files.
+Support `[tool.logalog]` in `pyproject.toml` and separate TOML, YAML, and JSON files.
 Load an explicit ordered list of files and merge their settings into one validated configuration.
 Treat file storage as user-authored configuration initially. Automatic rewriting and comment preservation remain outside the first version.
 
@@ -297,7 +293,7 @@ It does not change an application's Configurator defaults.
 
 Load explicit files in caller order. Later files replace earlier values at the same
 scope. Merge mappings recursively. Replace lists and scalar values. A file named
-`pyproject.toml` contributes only `[tool.malideiter]`.
+`pyproject.toml` contributes only `[tool.logalog]`.
 
 Use built-in defaults for missing settings. Explicit `LOG.configure()` arguments
 override loaded delivery settings. Do not load arbitrary environment settings.
@@ -408,7 +404,7 @@ Specify where every data item needs validation. Define the supported Python vers
 
 Choose a license before public distribution.
 The chosen public name is Logalog (`logalog`).
-Check name availability again before you replace the code name or publish.
+Check name availability again before you publish.
 
 ## Sources
 

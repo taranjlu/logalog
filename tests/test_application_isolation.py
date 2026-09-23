@@ -17,14 +17,14 @@ import sys
 from loguru import logger
 
 if sys.argv[2] == 'True':
-    from malideiter import LOG
+    from logalog import LOG
 logger.remove()
 application_file = logger.add(sys.argv[1], format='{message}', catch=False)
 standard_stream = io.StringIO()
 root = logging.getLogger()
 standard_handler = logging.StreamHandler(standard_stream)
 root.addHandler(standard_handler)
-from malideiter import LOG
+from logalog import LOG
 LOG.info('library-only-marker')
 LOG.shutdown()
 logger.info('application-only-marker')

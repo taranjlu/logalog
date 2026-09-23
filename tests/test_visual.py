@@ -16,8 +16,8 @@ from rich.syntax import Syntax
 from rich.table import Table
 from rich.text import Text
 
-from malideiter import _backend, _logger
-from malideiter._logger import Logger
+from logalog import _backend, _logger
+from logalog._logger import Logger
 
 ASSETS = Path(__file__).parent / "visual"
 
@@ -76,7 +76,7 @@ def _render_scene(
 
     directory.mkdir(parents=True, exist_ok=True)
     (directory / "actual.txt").write_text(console.export_text(clear=False), encoding="utf8")
-    svg = console.export_svg(title="malideiter", unique_id="visual-test")
+    svg = console.export_svg(title="logalog", unique_id="visual-test")
     # Keep exported artifacts offline and use the bundled font for the title too.
     svg = re.sub(r"@font-face\s*\{[^}]*\}", "", svg)
     svg = svg.replace("font-family: arial;", "font-family: monospace;")

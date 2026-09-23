@@ -10,7 +10,7 @@ def test_import_has_no_output_or_worker_threads() -> None:
 import threading
 
 before = set(threading.enumerate())
-import malideiter
+import logalog
 assert set(threading.enumerate()) == before
 """
     result = subprocess.run(  # noqa: S603 -- Fixed code in the test interpreter, without a shell.

@@ -11,8 +11,8 @@ from threading import Event
 
 import pytest
 
-from malideiter import initialize_worker
-from malideiter._logger import Logger
+from logalog import initialize_worker
+from logalog._logger import Logger
 
 
 def test_default_queue_flush_and_shutdown(capsys: pytest.CaptureFixture[str]) -> None:
@@ -87,7 +87,7 @@ def test_worker_initialization_rejects_invalid_owners() -> None:
     worker.shutdown()
     owner.shutdown()
 
-    initialize_worker(__import__("malideiter").LOG)
+    initialize_worker(__import__("logalog").LOG)
 
     with pytest.raises(ValueError, match="queued delivery"):
         pickle.dumps(Logger(synchronous=True))
@@ -103,7 +103,7 @@ def test_queued_sink_failure_does_not_hang() -> None:
     """Report a queued sink failure and finish shutdown."""
     script = r"""
 from rich.logging import RichHandler
-from malideiter._logger import Logger
+from logalog._logger import Logger
 
 def fail(*args):
     raise OSError("sink-failure-marker")
@@ -132,7 +132,7 @@ def test_process_workers_share_owner_queue(tmp_path: Path, method: str) -> None:
     script = r"""
 import multiprocessing as mp
 import os
-from malideiter import LOG, initialize_worker
+from logalog import LOG, initialize_worker
 
 def work(owner, value):
     initialize_worker(owner)
@@ -202,7 +202,7 @@ if __name__ == "__main__":
 @pytest.mark.parametrize("failed_exit", [False, True])
 def test_normal_interpreter_exit_flushes_shared_logger(failed_exit: bool) -> None:
     """Flush the shared queue at normal exit, including an unhandled exception."""
-    script = "from malideiter import LOG; LOG.info('exit-marker')"
+    script = "from logalog import LOG; LOG.info('exit-marker')"
     if failed_exit:
         script += "\nraise RuntimeError('exit-failure')"
     result = subprocess.run(  # noqa: S603 -- Fixed test script without a shell.

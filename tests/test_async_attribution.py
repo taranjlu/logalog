@@ -9,8 +9,8 @@ from types import FunctionType
 
 import pytest
 
-from malideiter import LOG, FileDestination, environment_names
-from malideiter._logger import Logger
+from logalog import LOG, FileDestination, environment_names
+from logalog._logger import Logger
 
 
 async def _body(helper: Callable[[], None], error: BaseException | None) -> None:

@@ -3,7 +3,7 @@ requires = ["uv_build>=0.12.7,<0.13.0"]
 build-backend = "uv_build"
 
 [project]
-name = "malideiter"
+name = "logalog"
 version = "0.0.0"
 description = "Structured logging with Loguru and Rich"
 readme = "README.md"
@@ -57,7 +57,7 @@ paths = ["src", "tests"]
 min_confidence = 90
 
 [tool.coverage.run]
-source = ["malideiter"]
+source = ["logalog"]
 branch = true
 patch = ["subprocess"]
 

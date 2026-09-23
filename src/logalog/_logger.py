@@ -128,14 +128,14 @@ def _control_names(module: str, prefix: str) -> tuple[tuple[str, str, str], ...]
 
 
 @beartype
-def environment_names(module: str, *, prefix: str = "MALIDEITER") -> dict[str, str]:
+def environment_names(module: str, *, prefix: str = "LOGALOG") -> dict[str, str]:
     """Return the global and exact-module environment variable names.
 
     Parameters
     ----------
     module : str
         Full caller module name.
-    prefix : str, default="MALIDEITER"
+    prefix : str, default="LOGALOG"
         Uppercase application prefix.
     """
     _validate(module, prefix)
@@ -221,7 +221,7 @@ class Logger:
         self,
         *,
         synchronous: bool = False,
-        prefix: str = "MALIDEITER",
+        prefix: str = "LOGALOG",
         files: tuple[FileDestination, ...] = (),
     ) -> None:
         """Keep import free of output and worker threads."""
@@ -238,7 +238,7 @@ class Logger:
         self._closed = False
         self._renderer: Console | None = None
         self._sections: ContextVar[tuple[str, ...]] = ContextVar(
-            f"malideiter_sections_{id(self)}", default=()
+            f"logalog_sections_{id(self)}", default=()
         )
 
     def _get_backend(self) -> LoguruLogger:
@@ -318,7 +318,7 @@ class Logger:
         self._owner_pid = cast(int | None, state["owner_pid"])
         self._closed = False
         self._renderer = None
-        self._sections = ContextVar(f"malideiter_sections_{id(self)}", default=())
+        self._sections = ContextVar(f"logalog_sections_{id(self)}", default=())
 
     def flush(self) -> None:
         """Wait until Loguru delivers all queued records."""
@@ -489,8 +489,8 @@ class Logger:
             depth = 0
             try:
                 while frame is not None and (
-                    frame.f_globals.get("__name__", "").startswith("malideiter.")
-                    or frame.f_code.co_filename.startswith("<@beartype(malideiter.")
+                    frame.f_globals.get("__name__", "").startswith("logalog.")
+                    or frame.f_code.co_filename.startswith("<@beartype(logalog.")
                 ):
                     depth += 1
                     frame = frame.f_back

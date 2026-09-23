@@ -1,4 +1,4 @@
-prefix = "MALIDEITER_EXAMPLE"
+prefix = "LOGALOG_EXAMPLE"
 
 [[files]]
 path = "logs/workflow.log"

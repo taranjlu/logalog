@@ -1,12 +1,8 @@
-# malideiter
+# logalog
 
-`malideiter` is the temporary code name for a Python logging library.
-It uses Loguru, Rich, and Beartype.
-The public name is Logalog.
-Use `logalog` for the public repository, distribution, and import name.
-Keep `malideiter` until you publish the library.
-The code name is confusing and has poor search results.
-Check name availability again before you publish.
+Logalog is a Python logging library built with Loguru, Rich, and Beartype.
+The distribution and import package use the name `logalog`.
+Check name availability again before public release.
 
 ## Status
 
@@ -18,7 +14,7 @@ No package release or public repository exists as part of this setup.
 ## Usage
 
 ```python
-from malideiter import LOG
+from logalog import LOG
 
 LOG.info("Task {}: {state}", 17, state="complete")
 LOG.debug("Worker started")
@@ -50,19 +46,20 @@ Rich objects appear below their log header and use the full console width.
 The producer reserves room for section indentation before it renders an object.
 Ordinary strings remain beside their log metadata. Text files get
 plain readable output. JSON records contain the same plain message and user fields.
+
 They do not contain ANSI sequences or private Rich objects. Suppressed events do not
 render their content.
 
 Call `LOG.configure(synchronous=True)` before the first log call to write in the
 calling thread. Use `LOG.configure(prefix="MY_APP")` to replace the default
-`MALIDEITER` environment prefix. Call `LOG.flush()` to wait for queued records. Call
+`LOGALOG` environment prefix. Call `LOG.flush()` to wait for queued records. Call
 `LOG.shutdown()` after workers stop to flush records and close the owner handler.
 
 Configure files before the first log call. Each destination uses Loguru's native file
 management. The default rotates at 10 MB and retains five archives.
 
 ```python
-from malideiter import FileDestination, LOG
+from logalog import FileDestination, LOG
 
 LOG.configure(
     files=(
@@ -79,11 +76,11 @@ Do not use overlapping filename patterns or share files between independent owne
 Use `mode="w"` only when you intend to discard an existing file.
 
 Load an explicit ordered list of TOML, JSON, or YAML files before initialization.
-For `pyproject.toml`, the loader reads only `[tool.malideiter]`. Later files
+For `pyproject.toml`, the loader reads only `[tool.logalog]`. Later files
 override earlier scalar and list values. Mappings merge recursively.
 
 ```python
-from malideiter import LOG, load_configuration
+from logalog import LOG, load_configuration
 
 settings = load_configuration("pyproject.toml", "logging.yaml")
 LOG.configure(configuration=settings)
@@ -94,7 +91,7 @@ The root keys are `synchronous`, `prefix`, `verbose`, `debug`, `silent`,
 Each file entry accepts the `FileDestination` fields. Relative destination paths
 use the directory of the source that supplies the final `files` list.
 The loader fixes these paths before the working directory can change.
-For `pyproject.toml`, quote dotted module names: `[tool.malideiter.modules."myapp.worker"]`.
+For `pyproject.toml`, quote dotted module names: `[tool.logalog.modules."myapp.worker"]`.
 
 The loader does not search for files or read command-line options. It does not load
 environment variables, `.env` files, interpolation, or executable settings. YAML uses
@@ -190,14 +187,14 @@ The first emitted record creates one reusable stderr console.
 The library does not create a stdout console or change application logging handlers.
 Keep stdout available for application data, command results, and machine-readable output.
 
-Debug and verbose output are off by default. Set `MALIDEITER_DEBUG=1` or
-`MALIDEITER_VERBOSE=1` to enable each category independently. Set
-`MALIDEITER_SILENT=1` to suppress all output. Each call reads current values from
+Debug and verbose output are off by default. Set `LOGALOG_DEBUG=1` or
+`LOGALOG_VERBOSE=1` to enable each category independently. Set
+`LOGALOG_SILENT=1` to suppress all output. Each call reads current values from
 `os.environ`. Changes apply in the calling process, before queue submission.
 
 Accepted records keep their decision while queued. A later parent-process change does not update an existing worker.
 
-Import `environment_names` from `malideiter` to get all global and exact-module names.
+Import `environment_names` from `logalog` to get all global and exact-module names.
 For example, call `environment_names("myapp.worker", prefix="MY_APP")`. Use the same prefix as `LOG`.
 
 Module settings inherit from parents. A child value overrides inherited debug or
@@ -234,7 +231,7 @@ The example restores its process-local debug setting and closes the logger.
 
 ## Structure
 
-- `src/malideiter/`: package source and type marker.
+- `src/logalog/`: package source and type marker.
 - `tests/`: tests for package behavior.
 - `pyproject.toml`: package metadata and tool settings.
 - `uv.lock`: exact development dependency versions.
@@ -269,20 +266,23 @@ Bandit reports findings with at least medium severity and medium confidence.
 Pytest Randomly changes test order and reports its seed. Use `just test-random 42`
 to repeat a seed. Hypothesis checks module-name encoding across Unicode inputs.
 Pytest Asyncio runs coroutine tests in strict mode with function-scoped event loops.
+
 Pytest Sugar supplies interactive progress. Use `just test-spec` for specification
-output; that command disables Sugar to prevent conflicting output formats.
+output. That command disables Sugar to prevent conflicting output formats.
+
 Use `just matrix` to run the Python 3.11–3.14 tests through Nox and uv.
-The four Python sessions run concurrently; tests within each session remain sequential.
+The four Python sessions run concurrently. Tests within each session remain sequential.
 Each session keeps coverage data, the pytest cache, and Hypothesis data in its own
 `.nox/tests-3-XX/test-artifacts/` directory and independently enforces 100% coverage.
 Nox currently labels parallel execution experimental.
+
 Use `uv run nox --parallel 1` for sequential sessions.
 `just test-matrix` remains an alias. Nox reuses isolated environments, installs
 from the frozen lockfile, and fails if a required interpreter is missing.
 Use `uv run nox -s tests-3.12 -- --randomly-seed=42` to select a session and pass pytest arguments.
 Tests cover output, caller information, exceptions, runtime type checks, threads, import safety, and application handler isolation.
 
-Full test runs fail below 100% line and branch coverage of `malideiter`.
+Full test runs fail below 100% line and branch coverage of `logalog`.
 Coverage includes subprocess execution.
 Use `just coverage` to write an HTML report to `htmlcov/index.html`.
 Use `just test-images` for the OpenImageIO visual regression checks.
@@ -307,4 +307,3 @@ Test the adapter before changing that range.
 
 Add one working layer at a time.
 Choose the license before public distribution.
-Replace the code name with Logalog only when you publish the library.

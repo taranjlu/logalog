@@ -8,8 +8,8 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
-from malideiter import ConfigurationError, environment_names
-from malideiter._logger import Logger
+from logalog import ConfigurationError, environment_names
+from logalog._logger import Logger
 
 
 @pytest.fixture
@@ -34,12 +34,12 @@ def test_names_are_discoverable_and_collision_free() -> None:
     upper = environment_names("MY.APP", prefix="PROJECT_2")
 
     assert lower == {
-        "global_verbose": "MALIDEITER_VERBOSE",
-        "global_debug": "MALIDEITER_DEBUG",
-        "global_silent": "MALIDEITER_SILENT",
-        "module_verbose": "MALIDEITER_MODULE__6D795F617070__776F726B6572_VERBOSE",
-        "module_debug": "MALIDEITER_MODULE__6D795F617070__776F726B6572_DEBUG",
-        "module_silent": "MALIDEITER_MODULE__6D795F617070__776F726B6572_SILENT",
+        "global_verbose": "LOGALOG_VERBOSE",
+        "global_debug": "LOGALOG_DEBUG",
+        "global_silent": "LOGALOG_SILENT",
+        "module_verbose": "LOGALOG_MODULE__6D795F617070__776F726B6572_VERBOSE",
+        "module_debug": "LOGALOG_MODULE__6D795F617070__776F726B6572_DEBUG",
+        "module_silent": "LOGALOG_MODULE__6D795F617070__776F726B6572_SILENT",
     }
     assert upper["module_debug"] == "PROJECT_2_MODULE__4D59__415050_DEBUG"
     assert upper["module_debug"] != environment_names("my.app", prefix="PROJECT_2")["module_debug"]
@@ -71,10 +71,10 @@ def test_global_controls_are_live_and_independent(
     other = "debug" if control == "verbose" else "verbose"
     log.info("normal-before")
     getattr(log, method)("hidden-before")
-    monkeypatch.setenv(f"MALIDEITER_{control.upper()}", " YES ")
+    monkeypatch.setenv(f"LOGALOG_{control.upper()}", " YES ")
     getattr(log, method)("shown")
     getattr(log, other)("other-hidden")
-    monkeypatch.setenv(f"MALIDEITER_{control.upper()}", "off")
+    monkeypatch.setenv(f"LOGALOG_{control.upper()}", "off")
     getattr(log, method)("hidden-after")
 
     output = capsys.readouterr().err
@@ -112,12 +112,12 @@ def test_global_silence_is_live_for_every_level(
     log: Logger, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Suppress all categories globally and restore them after deletion."""
-    monkeypatch.setenv("MALIDEITER_DEBUG", "1")
-    monkeypatch.setenv("MALIDEITER_VERBOSE", "1")
-    monkeypatch.setenv("MALIDEITER_SILENT", "true")
+    monkeypatch.setenv("LOGALOG_DEBUG", "1")
+    monkeypatch.setenv("LOGALOG_VERBOSE", "1")
+    monkeypatch.setenv("LOGALOG_SILENT", "true")
     for method in ("trace", "debug", "verbose", "info", "error"):
         getattr(log, method)(f"hidden-{method}")
-    monkeypatch.delenv("MALIDEITER_SILENT")
+    monkeypatch.delenv("LOGALOG_SILENT")
     log.debug("restored-debug")
     log.verbose("restored-verbose")
 
@@ -131,8 +131,8 @@ def test_global_silence_is_live_for_every_level(
 def test_malformed_values_raise_before_backend(monkeypatch: pytest.MonkeyPatch, value: str) -> None:
     """Reject malformed applicable values with their variable name."""
     log = Logger()
-    monkeypatch.setenv("MALIDEITER_VERBOSE", value)
-    with pytest.raises(ConfigurationError, match="MALIDEITER_VERBOSE"):
+    monkeypatch.setenv("LOGALOG_VERBOSE", value)
+    with pytest.raises(ConfigurationError, match="LOGALOG_VERBOSE"):
         log.info("not-queued")
     assert log._backend is None
     log.shutdown()
@@ -183,15 +183,15 @@ def test_process_reads_its_own_environment() -> None:
     """Evaluate live controls in the process that makes the call."""
     code = """
 import os
-from malideiter._logger import Logger
+from logalog._logger import Logger
 log = Logger(synchronous=True)
 log.debug('hidden')
-os.environ['MALIDEITER_DEBUG'] = '1'
+os.environ['LOGALOG_DEBUG'] = '1'
 log.debug('shown')
 log.shutdown()
 """
     environment = os.environ.copy()
-    environment.pop("MALIDEITER_DEBUG", None)
+    environment.pop("LOGALOG_DEBUG", None)
     result = subprocess.run(  # noqa: S603 -- Fixed test code without a shell.
         [sys.executable, "-I", "-c", code],
         env=environment,
@@ -211,7 +211,7 @@ def test_module_changes_and_deletion_restore_inheritance(
 ) -> None:
     """Observe module additions, changes, and deletions without a reload."""
     name = environment_names("live.worker")[f"module_{control}"]
-    monkeypatch.setenv(f"MALIDEITER_{control.upper()}", "1")
+    monkeypatch.setenv(f"LOGALOG_{control.upper()}", "1")
     method = "info" if control == "silent" else control
     _call_as(log, "live.worker", method, "inherited")
     monkeypatch.setenv(name, "0")
@@ -220,7 +220,7 @@ def test_module_changes_and_deletion_restore_inheritance(
     _call_as(log, "live.worker", method, "explicit-true")
     monkeypatch.delenv(name)
     _call_as(log, "live.worker", method, "restored-inheritance")
-    monkeypatch.delenv(f"MALIDEITER_{control.upper()}")
+    monkeypatch.delenv(f"LOGALOG_{control.upper()}")
     _call_as(log, "live.worker", method, "default-state")
     output = capsys.readouterr().err
     if control == "silent":
@@ -241,7 +241,7 @@ def test_shutdown_rejects_suppressed_calls(monkeypatch: pytest.MonkeyPatch, meth
     """Keep the shutdown contract when controls would suppress the message."""
     log = Logger()
     log.shutdown()
-    monkeypatch.setenv("MALIDEITER_SILENT", "1")
+    monkeypatch.setenv("LOGALOG_SILENT", "1")
     with pytest.raises(RuntimeError, match="shut down"):
         getattr(log, method)("after-shutdown")
     with pytest.raises(RuntimeError, match="shut down"):
@@ -251,8 +251,8 @@ def test_shutdown_rejects_suppressed_calls(monkeypatch: pytest.MonkeyPatch, meth
 def test_invalid_environment_value_is_not_disclosed(monkeypatch: pytest.MonkeyPatch) -> None:
     """Name the invalid control without exposing its contents."""
     log = Logger()
-    monkeypatch.setenv("MALIDEITER_DEBUG", "private-value-marker")
-    with pytest.raises(ConfigurationError, match="MALIDEITER_DEBUG") as error:
+    monkeypatch.setenv("LOGALOG_DEBUG", "private-value-marker")
+    with pytest.raises(ConfigurationError, match="LOGALOG_DEBUG") as error:
         log.info("not-emitted")
     assert "private-value-marker" not in str(error.value)
     log.shutdown()

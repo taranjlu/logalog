@@ -10,8 +10,8 @@ from pathlib import Path
 import pytest
 from beartype.roar import BeartypeCallHintParamViolation
 
-from malideiter import Configuration, ConfigurationError, load_configuration
-from malideiter._logger import Logger
+from logalog import Configuration, ConfigurationError, load_configuration
+from logalog._logger import Logger
 
 
 def _write(path: Path, text: str) -> Path:
@@ -35,10 +35,10 @@ def test_formats_merge_in_order_and_resolve_file_path(tmp_path: Path) -> None:
         """
 [project]
 name = "ignored"
-[tool.malideiter]
+[tool.logalog]
 prefix = "PROJECT"
 debug = true
-[tool.malideiter.modules.app]
+[tool.logalog.modules.app]
 verbose = true
 debug = false
 """,
@@ -98,11 +98,11 @@ modules:
     _call_as(log, "app.worker", "debug", "module-hidden")
     _call_as(log, "app.worker", "verbose", "module-default")
     _call_as(log, "muted.child", "info", "stored-silent")
-    monkeypatch.setenv("MALIDEITER_MODULE__617070_DEBUG", "1")
+    monkeypatch.setenv("LOGALOG_MODULE__617070_DEBUG", "1")
     _call_as(log, "app.worker", "debug", "live-module")
-    monkeypatch.setenv("MALIDEITER_SILENT", "1")
+    monkeypatch.setenv("LOGALOG_SILENT", "1")
     log.error("live-hidden")
-    monkeypatch.delenv("MALIDEITER_SILENT")
+    monkeypatch.delenv("LOGALOG_SILENT")
     log.error("restored")
     log.shutdown()
 
@@ -124,7 +124,7 @@ def test_live_false_overrides_stored_global_silence(
     log = Logger()
     log.configure(configuration=load_configuration(path))
     log.info("stored-hidden")
-    monkeypatch.setenv("MALIDEITER_SILENT", "false")
+    monkeypatch.setenv("LOGALOG_SILENT", "false")
     log.info("live-visible")
     log.shutdown()
     output = capsys.readouterr().err
@@ -225,7 +225,7 @@ def test_import_and_loading_do_not_read_cli_or_unrelated_environment(tmp_path: P
     script = """
 import os, sys
 before = dict(os.environ)
-from malideiter import load_configuration
+from logalog import load_configuration
 assert load_configuration(sys.argv[1]).debug is True
 assert dict(os.environ) == before
 from configurator import Config
@@ -323,7 +323,7 @@ import multiprocessing as mp
 import os
 import sys
 from types import FunctionType
-from malideiter import LOG, initialize_worker, load_configuration
+from logalog import LOG, initialize_worker, load_configuration
 
 def messages():
     LOG.debug("stored-global-marker")
@@ -334,7 +334,7 @@ emit = FunctionType(messages.__code__, {"__name__": "app.worker", "LOG": LOG})
 def work(owner):
     initialize_worker(owner)
     emit()
-    os.environ["MALIDEITER_DEBUG"] = "0"
+    os.environ["LOGALOG_DEBUG"] = "0"
     LOG.debug("hidden-worker-marker")
     LOG.shutdown()
 

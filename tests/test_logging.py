@@ -13,7 +13,7 @@ import pytest
 from beartype import beartype
 from beartype.roar import BeartypeCallHintParamViolation
 
-from malideiter._logger import Logger
+from logalog._logger import Logger
 
 if TYPE_CHECKING:
     from loguru import Message
@@ -49,7 +49,7 @@ def test_levels_write_once_to_stderr(
 ) -> None:
     """Write every supported severity once without using stdout."""
     if controlled:
-        monkeypatch.setenv(f"MALIDEITER_{method.upper()}", "1")
+        monkeypatch.setenv(f"LOGALOG_{method.upper()}", "1")
     getattr(log, method)("message-marker")
 
     captured = capsys.readouterr()
