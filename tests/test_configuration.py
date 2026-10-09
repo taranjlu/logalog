@@ -58,6 +58,7 @@ modules:
         """
 synchronous = true
 stderr = "json"
+standard_logging = true
 files = [{path = "logs/events.log", rotation = 100, retention = 2}]
 """,
     )
@@ -66,6 +67,7 @@ files = [{path = "logs/events.log", rotation = 100, retention = 2}]
 
     assert configuration.synchronous is True
     assert configuration.stderr == "json"
+    assert configuration.standard_logging is True
     assert configuration.prefix == "JSON"
     assert configuration.debug is True
     assert dict(configuration.modules) == {"app": (False, True, None)}

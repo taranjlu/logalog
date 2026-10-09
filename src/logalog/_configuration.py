@@ -81,7 +81,17 @@ class FileDestination:
 
 
 _ROOT_KEYS = frozenset(
-    {"synchronous", "stderr", "prefix", "verbose", "debug", "silent", "modules", "files"}
+    {
+        "synchronous",
+        "stderr",
+        "standard_logging",
+        "prefix",
+        "verbose",
+        "debug",
+        "silent",
+        "modules",
+        "files",
+    }
 )
 Stderr = Literal["rich", "plain", "json"]
 _CONTROL_KEYS = frozenset({"verbose", "debug", "silent"})
@@ -94,6 +104,7 @@ class Configuration:
 
     synchronous: bool | None = None
     stderr: Stderr = "rich"
+    standard_logging: bool = False
     prefix: str = "LOGALOG"
     verbose: bool = False
     debug: bool = False
@@ -111,7 +122,8 @@ class Configuration:
         """
         # A truthy non-Boolean value could silence or enable output by mistake.
         if (self.synchronous is not None and type(self.synchronous) is not bool) or any(
-            type(value) is not bool for value in (self.verbose, self.debug, self.silent)
+            type(value) is not bool
+            for value in (self.standard_logging, self.verbose, self.debug, self.silent)
         ):
             raise ConfigurationError("Delivery and control settings must be Booleans")
         check_stderr(self.stderr)
@@ -275,6 +287,7 @@ def _validate(data: Mapping[str, object], source: Path) -> Configuration:
     return Configuration(
         synchronous=_optional_bool(data.get("synchronous"), source, "synchronous"),
         stderr=cast(Stderr, stderr),
+        standard_logging=_bool(data.get("standard_logging", False), source, "standard_logging"),
         prefix=prefix,
         verbose=_bool(data.get("verbose", False), source, "verbose"),
         debug=_bool(data.get("debug", False), source, "debug"),

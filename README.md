@@ -234,7 +234,8 @@ loads Loguru and the output modules. A suppressed record loads nothing.
 Loguru adds its default handler to its own shared `logger` when it loads.
 Logalog does not use or change that shared logger.
 The first emitted record creates one reusable stderr console.
-The library does not create a stdout console or change application logging handlers.
+The library does not create a stdout console. It changes application logging handlers
+only under the standard logging takeover policy below.
 Keep stdout available for application data, command results, and machine-readable output.
 
 Debug and verbose output are off by default. Set `LOGALOG_DEBUG=1` or
@@ -260,6 +261,49 @@ the first control that suppresses it. An invalid value that a call reads raises
 The library has typed interfaces for Ty and other static type checkers. It does not
 check every argument at run time. Explicit checks protect redaction inputs, file
 destinations, configuration controls, prefixes, and module names. These checks also work with `-O`.
+
+## Standard logging takeover
+
+The takeover is off by default. It is an explicit ownership policy for the root
+handlers of the standard `logging` module. Enable it only in the application that owns
+the process, never in a library.
+
+```python
+LOG.configure(stderr="json", standard_logging=True)
+```
+
+When you enable it, `LOG.configure()` does these steps at once:
+
+- It records the root handlers and the root level.
+- It removes those handlers and adds one logalog handler.
+- It sets the root level to `NOTSET`, so the live logalog controls decide.
+
+Records that reach the root logger then use logalog delivery, stderr mode, files,
+sections, and live controls. The logger name is the module for the controls and for
+the `name` field. The record keeps its own function, file, and line.
+Levels map down to the nearest logalog level: `DEBUG` (10), `VERBOSE` (15),
+`INFO` (20), `SUCCESS` (25), `WARNING` (30), `ERROR` (40), and `CRITICAL` (50).
+Levels below 10 map to `TRACE`. Exception information stays with the record.
+Standard `extra` attributes do not become logalog fields.
+
+`LOG.shutdown()`, also at interpreter exit, removes the logalog handler first.
+It then adds the recorded handlers back and restores the recorded root level.
+Handlers that the application added after the takeover stay in place.
+`LOG.configure(standard_logging=False)` before the first record also restores the root.
+When the option is off, logalog does not read or change any standard logging object.
+
+The takeover applies only to records that reach the root logger:
+
+- A logger with its own handlers and `propagate=False` keeps its own output.
+  For Uvicorn, pass `log_config=None` to `uvicorn.run()` so its loggers propagate.
+- A logger with its own level still filters records before the root.
+- Silence a content-bearing logger with a module control, for example
+  `modules: {"uvicorn.access": {silent: true}}` in a configuration file.
+- If logalog rejects a record, for example for an invalid control value, the standard
+  logging error handler reports it on stderr. That report includes the message.
+
+The takeover applies to the process that calls `LOG.configure()`. Worker processes
+do not take over their own root logger.
 
 ## Plan
 

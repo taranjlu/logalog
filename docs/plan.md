@@ -73,6 +73,13 @@ Test how the library can manage its own handlers without changing the applicatio
 Do not remove application handlers, duplicate output, or capture unrelated logs by default.
 Defer the capture of standard-library logs. Add that integration only through an explicit option.
 
+Decision on 2026-10-09: `LOG.configure(standard_logging=True)` is that explicit option.
+It is off by default. When enabled, it records the root handlers and level, replaces
+the handlers with one logalog handler, and sets the root level to `NOTSET`.
+Shutdown removes the logalog handler and restores the recorded handlers and level.
+Records keep their logger name as the module, so module controls apply to them.
+The README describes the complete policy.
+
 ### Queued and synchronous output
 
 Use Loguru's `enqueue=True` as the default delivery model.

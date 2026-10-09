@@ -31,11 +31,18 @@ from ._configuration import (
 )
 
 if TYPE_CHECKING:
+    from logging import LogRecord
+
     from loguru._logger import Logger as LoguruLogger
     from rich.console import Console, RenderableType
 
+    from ._standard import Takeover
+
 Level = Literal["TRACE", "DEBUG", "VERBOSE", "INFO", "SUCCESS", "WARNING", "ERROR", "CRITICAL"]
 Control = Literal["verbose", "debug", "silent"]
+ExceptionInfo = (
+    tuple[type[BaseException], BaseException, TracebackType | None] | tuple[None, None, None]
+)
 P = ParamSpec("P")
 R = TypeVar("R")
 
@@ -275,6 +282,7 @@ class Logger:
         self._owner_pid: int | None = None
         self._closed = False
         self._renderer: Console | None = None
+        self._standard: Takeover | None = None
         self._sections: ContextVar[tuple[str, ...]] = ContextVar(
             f"logalog_sections_{id(self)}", default=()
         )
@@ -317,6 +325,7 @@ class Logger:
         stderr: Stderr | None = None,
         prefix: str | None = None,
         files: tuple[FileDestination, ...] | None = None,
+        standard_logging: bool | None = None,
     ) -> None:
         """Select delivery before the first log call.
 
@@ -333,6 +342,9 @@ class Logger:
             Uppercase prefix for live control environment variables.
         files : tuple[FileDestination, ...] or None, default=None
             Text and JSON Lines destinations.
+        standard_logging : bool or None, default=None
+            ``True`` replaces the root ``logging`` handlers with one logalog handler
+            until shutdown. ``None`` keeps the loaded setting, which defaults to ``False``.
 
         Raises
         ------
@@ -342,6 +354,8 @@ class Logger:
         selected = configuration or Configuration()
         synchronous = selected.synchronous if synchronous is None else synchronous
         stderr = selected.stderr if stderr is None else stderr
+        if standard_logging is None:
+            standard_logging = selected.standard_logging
         prefix = selected.prefix if prefix is None else prefix
         files = selected.files if files is None else files
         _validate("module", prefix)
@@ -357,6 +371,27 @@ class Logger:
             self._files = files
             self._control_defaults = (selected.verbose, selected.debug, selected.silent)
             self._module_defaults = module_defaults
+            if standard_logging and self._standard is None:
+                from ._standard import take_over
+
+                self._standard = take_over(self)
+        if not standard_logging:
+            self._release_standard_logging()
+
+    def _release_standard_logging(self) -> None:
+        """Restore the root logging handlers and level that the takeover recorded."""
+        with self._lock:
+            takeover, self._standard = self._standard, None
+        if takeover is not None:
+            from ._standard import restore
+
+            restore(takeover)
+
+    def _forward(self, level: Level, record: LogRecord) -> None:
+        """Log one standard record with its logger name as the module."""
+        source = _Source(record.name, record.funcName, record.pathname, record.lineno)
+        message = record.getMessage()
+        self._emit(level, message, (), {}, exception=record.exc_info or False, source=source)
 
     def initialize(self) -> None:
         """Create the backend now. Automatic delivery selects the owner queue for workers."""
@@ -393,6 +428,7 @@ class Logger:
         self._owner_pid = cast(int | None, state["owner_pid"])
         self._closed = False
         self._renderer = None
+        self._standard = None
         self._sections = ContextVar(f"logalog_sections_{id(self)}", default=())
         self._lock = Condition()
         self._active = 0
@@ -416,6 +452,8 @@ class Logger:
         Exception
             The first failure from a handler that closed. All handlers still close.
         """
+        # Give standard records back to their own handlers before the backend closes.
+        self._release_standard_logging()
         with self._lock:
             if self._closed:
                 return
@@ -602,7 +640,7 @@ class Logger:
         args: tuple[object, ...],
         fields: dict[str, object],
         *,
-        exception: bool = False,
+        exception: bool | ExceptionInfo = False,
         source: _Source | None = None,
     ) -> None:
         """Preserve the external caller through library frames."""
@@ -657,7 +695,7 @@ class Logger:
         args: tuple[object, ...],
         fields: dict[str, object],
         depth: int,
-        exception: bool,
+        exception: bool | ExceptionInfo,
         source: _Source | None,
     ) -> None:
         """Format, render, and submit one accepted event."""
