@@ -5,15 +5,13 @@ import inspect
 import json
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Any, cast
 
 import pytest
-from beartype.roar import BeartypeCallHintParamViolation
 from rich.text import Text
 
 from logalog import FileDestination
 from logalog._backend import _RICH_SNAPSHOT
-from logalog._logger import Logger, _quote_command, _Section
+from logalog._logger import Logger, _quote_command
 
 
 def test_nested_sections_reach_console_text_json_and_queue(
@@ -165,8 +163,6 @@ def test_section_rejects_reentry_and_supports_sequential_reuse() -> None:
         pass
     with pytest.raises(RuntimeError, match="not active"):
         section.__exit__(None, None, None)
-    with pytest.raises(BeartypeCallHintParamViolation):
-        cast(Any, _Section.__exit__)(section, "bad", None, None)
     log.shutdown()
 
 
@@ -221,6 +217,35 @@ def test_sync_and_async_decorators_preserve_behavior_and_metadata(
         records[0].record["function"]
         == "test_sync_and_async_decorators_preserve_behavior_and_metadata"
     )
+
+
+def test_decorator_supports_class_and_static_methods_in_both_orders() -> None:
+    """Wrap the underlying function of a class or static method."""
+    log = Logger(synchronous=True)
+    records = []
+    log._get_backend().add(records.append, format="{message}")
+
+    class Service:
+        @log
+        @classmethod
+        def outer(cls) -> str:
+            return cls.__name__
+
+        @classmethod
+        @log
+        def inner(cls) -> str:
+            return cls.__name__
+
+        @log
+        @staticmethod
+        def static() -> int:
+            return 1
+
+    assert Service.outer() == Service.inner() == "Service"
+    assert Service().static() == 1
+    log.shutdown()
+    started = [record.record["message"] for record in records if "▶" in record.record["message"]]
+    assert [message.rsplit(".", 1)[-1] for message in started] == ["outer", "inner", "static"]
 
 
 def test_decorator_rejects_generators() -> None:
@@ -316,7 +341,7 @@ def test_command_windows_validation_and_runtime_types(
     for arguments, expected in [
         ([], ValueError),
         ("tool", ValueError),
-        (["tool", 2], (TypeError, BeartypeCallHintParamViolation)),
+        (["tool", 2], TypeError),
     ]:
         with pytest.raises(expected):
             log.command(arguments)  # ty: ignore[invalid-argument-type]
@@ -324,16 +349,10 @@ def test_command_windows_validation_and_runtime_types(
         log.command(["tool", "secret"], redact_indices=(2,))
     with pytest.raises(TypeError):
         log.command(["tool"], redact_indices=(True,))
-    with pytest.raises((TypeError, BeartypeCallHintParamViolation)):
+    with pytest.raises(TypeError):
         log.command(["tool"], redact_values=(1,))  # ty: ignore[invalid-argument-type]
     with pytest.raises(TypeError, match="not one string"):
         log.command(["tool", "token-value"], redact_values="token-value")
-    with pytest.raises(TypeError):
-        cast(Any, Logger.command).__wrapped__(log, ["tool", 2])
-    with pytest.raises(TypeError):
-        cast(Any, Logger.command).__wrapped__(log, ["tool"], redact_values=(1,))
-    with pytest.raises(BeartypeCallHintParamViolation):
-        log.section(1)  # ty: ignore[invalid-argument-type]
     with pytest.raises(ValueError, match="title"):
         log.section("")
     assert capsys.readouterr() == ("", "")

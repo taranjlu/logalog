@@ -12,7 +12,6 @@ from threading import enumerate as threads
 from types import SimpleNamespace
 
 import pytest
-from beartype.roar import BeartypeCallHintParamViolation
 
 from logalog import FileDestination
 from logalog._logger import Logger
@@ -135,10 +134,13 @@ def test_invalid_file_paths_fail_before_setup(
         Logger(files=files)
 
 
-def test_invalid_destination_type_fails_at_runtime() -> None:
-    """Keep Beartype active on the public file API."""
-    with pytest.raises(BeartypeCallHintParamViolation):
+def test_invalid_destination_values_fail_before_setup(tmp_path: Path) -> None:
+    """Reject destination values and types that could write to the wrong place."""
+    with pytest.raises(ValueError, match="invalid kind"):
         FileDestination("events.log", kind="xml")  # ty: ignore[invalid-argument-type]
+    invalid = SimpleNamespace(path=tmp_path / "invalid.log")
+    with pytest.raises(TypeError, match="FileDestination"):
+        Logger(files=(FileDestination(tmp_path / "valid.log"), invalid))  # ty: ignore[invalid-argument-type]
 
 
 def test_native_configuration_and_write_failures_are_visible(tmp_path: Path) -> None:
@@ -283,11 +285,3 @@ def test_symlink_aliases_cannot_create_two_writers(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="unique"):
         Logger(files=(FileDestination(path), FileDestination(alias, kind="json")))
     assert not path.exists()
-
-
-def test_every_destination_requires_its_declared_type(tmp_path: Path) -> None:
-    """Check all destination entries instead of relying on container sampling."""
-    valid = tuple(FileDestination(tmp_path / f"part-{index}.log") for index in range(10))
-    invalid = SimpleNamespace(path=tmp_path / "invalid.log")
-    with pytest.raises(BeartypeCallHintParamViolation):
-        Logger(files=(*valid, invalid))  # ty: ignore[invalid-argument-type]

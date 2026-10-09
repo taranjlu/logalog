@@ -46,3 +46,23 @@ Commit `8e887f4a` is the reviewed code. The fixes commit adds the correctness fi
 
 The fixes do not change the cost in a significant way.
 Rich rendering of the stderr line is most of the emitted call cost.
+
+## Round 1: remove Beartype
+
+Change: remove Beartype from all modules and from the runtime dependencies.
+The owner approved this change if measurements showed a cost.
+Explicit checks remain for redaction inputs, file destinations, configuration controls,
+prefixes, and module names.
+
+| Measurement | Before | After |
+| --- | ---: | ---: |
+| import logalog (ms) | 121.1 | 81.7 |
+| first synchronous call (ms) | 3.7 | 3.8 |
+| first queued call and flush (ms) | 7.5 | 7.4 |
+| suppressed debug call (µs) | 4.9 | 3.6 |
+| emitted info call (µs) | 246.5 | 242.1 |
+| 8 threads, synchronous (records/s) | 2,409 | 2,568 |
+| 8 threads, queued (records/s) | 2,461 | 2,550 |
+
+Import is about 39 ms faster. Each suppressed call is about 1.3 µs faster, because
+the wrapper of each public method and of `_emit` is gone.

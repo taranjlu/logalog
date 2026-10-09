@@ -316,6 +316,11 @@ Automatic rewriting and comment preservation remain outside this layer.
 
 ## Runtime type checking
 
+Decision on 2026-10-09: the owner removed Beartype. It added about 40 ms to import
+and about 1.3 µs to each suppressed call (see [performance](performance.md)).
+Typed interfaces, Ty, tests, and explicit checks at harmful boundaries replace it.
+The rest of this section is historical.
+
 Use Beartype to check typed functions and methods within this library. Do not apply its checks to unrelated application packages.
 Prefer explicit decorators where they keep the boundary clear.
 If a package import hook is necessary, restrict its scope and make decoration failures fatal.

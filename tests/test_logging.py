@@ -10,8 +10,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
-from beartype import beartype
-from beartype.roar import BeartypeCallHintParamViolation
 
 from logalog._logger import Logger
 
@@ -104,21 +102,6 @@ def test_log_method_preserves_source(log: Logger) -> None:
     assert records[0].record["level"].name == "WARNING"
 
 
-def test_decorated_application_caller(log: Logger) -> None:
-    """Do not skip an application's own decorated function."""
-    records: list[Message] = []
-    log._get_backend().add(records.append, format="{message}")
-
-    @beartype
-    def application(value: str) -> None:
-        log.info(value)
-
-    application("decorated-marker")
-
-    assert records[0].record["function"] == "application"
-    assert records[0].record["name"] == __name__
-
-
 def test_literal_markup_and_braces(log: Logger, capsys: pytest.CaptureFixture[str]) -> None:
     """Do not treat ordinary message text as Rich markup or a template."""
     text = "[red]literal[/red] {unresolved} <blue>unchanged</blue>"
@@ -170,40 +153,6 @@ def test_exception_outside_handler(log: Logger, capsys: pytest.CaptureFixture[st
     output = capsys.readouterr().err
     assert "no-active-exception" in output
     assert "Traceback" not in output
-
-
-@pytest.mark.parametrize(
-    "method",
-    [
-        "trace",
-        "debug",
-        "verbose",
-        "info",
-        "success",
-        "warning",
-        "error",
-        "critical",
-        "exception",
-    ],
-)
-def test_invalid_message_fails_before_setup(
-    log: Logger, method: str, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """Reject non-string messages without output or backend initialization."""
-    with pytest.raises(BeartypeCallHintParamViolation):
-        getattr(log, method)(42)
-
-    assert log._backend is None
-    assert capsys.readouterr() == ("", "")
-
-
-def test_invalid_level_fails_before_setup(log: Logger, capsys: pytest.CaptureFixture[str]) -> None:
-    """Reject unknown severity names before creating a handler."""
-    with pytest.raises(BeartypeCallHintParamViolation):
-        log.log("UNKNOWN", "invalid-level")  # ty: ignore[invalid-argument-type]
-
-    assert log._backend is None
-    assert capsys.readouterr() == ("", "")
 
 
 def test_bad_format_does_not_write_partial_message(

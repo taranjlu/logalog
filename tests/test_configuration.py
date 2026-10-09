@@ -8,7 +8,6 @@ import sys
 from pathlib import Path
 
 import pytest
-from beartype.roar import BeartypeCallHintParamViolation
 
 from logalog import Configuration, ConfigurationError, load_configuration
 from logalog._logger import Logger
@@ -160,9 +159,9 @@ def test_live_false_overrides_stored_global_silence(
         ("settings.yaml", "files: [[]]", "files\\[0\\] must be a mapping"),
         ("settings.yaml", "files: [{kind: text}]", "path must be a string"),
         ("settings.yaml", "files: [{path: x, extra: 1}]", "unknown files"),
-        ("settings.yaml", "files: [{path: x, delay: 1}]", "invalid files"),
-        ("settings.yaml", "files: [{path: x, rotation: true}]", "invalid files"),
-        ("settings.yaml", "files: [{path: x, buffering: false}]", "invalid files"),
+        ("settings.yaml", "files: [{path: x, delay: 1}]", "invalid"),
+        ("settings.yaml", "files: [{path: x, rotation: true}]", "invalid"),
+        ("settings.yaml", "files: [{path: x, buffering: false}]", "invalid"),
     ],
 )
 def test_malformed_configuration_has_source_and_clear_path(
@@ -303,13 +302,12 @@ def test_programmatic_modules_reject_duplicate_names() -> None:
         Configuration(modules=(("app", (None, True, None)), ("app", (True, None, None))))
 
 
-def test_programmatic_modules_check_every_entry() -> None:
-    """Check all module controls and every public source argument."""
-    valid = tuple((f"module{index}", (None, True, None)) for index in range(10))
-    with pytest.raises(BeartypeCallHintParamViolation):
-        Configuration(modules=(*valid, ("bad", (None, "yes", None))))  # ty: ignore[invalid-argument-type]
-    with pytest.raises(BeartypeCallHintParamViolation):
-        load_configuration(42)  # ty: ignore[invalid-argument-type]
+def test_programmatic_controls_must_be_booleans() -> None:
+    """Reject truthy strings that would change controls by mistake."""
+    with pytest.raises(ConfigurationError, match="Module bad controls"):
+        Configuration(modules=(("bad", (None, "yes", None)),))  # ty: ignore[invalid-argument-type]
+    with pytest.raises(ConfigurationError, match="Booleans"):
+        Configuration(silent="no")  # ty: ignore[invalid-argument-type]
 
 
 @pytest.mark.parametrize("method", multiprocessing.get_all_start_methods())

@@ -1,6 +1,6 @@
 # logalog
 
-Logalog is a Python logging library built with Loguru, Rich, and Beartype.
+Logalog is a Python logging library built with Loguru and Rich.
 The distribution and import package use the name `logalog`.
 Check name availability again before public release.
 
@@ -162,7 +162,8 @@ def update() -> None:
 
 `@LOG` supports ordinary synchronous and asynchronous functions. It preserves returns,
 exceptions, and function metadata. It does not support generators or asynchronous
-generators. It does not log function arguments.
+generators. It does not log function arguments. Put `@LOG` above or below
+`@classmethod` or `@staticmethod`.
 
 Async lifecycle messages use the decorated function's definition location and module
 controls, including when the event loop schedules the function. Body messages keep
@@ -178,8 +179,8 @@ Give `redact_values` as a collection, such as a tuple. One string raises `TypeEr
 Use `redact_values` to hide an exact `cwd` value. An invalid redaction index stops
 the call before logging. The `command` and `cwd` record fields contain the display values.
 
-Use strings for command arguments and redaction values. Runtime type errors can
-include argument representations. Quoting does not escape embedded newlines.
+Use strings for command arguments and redaction values. Other types raise `TypeError`
+without the argument values. Quoting does not escape embedded newlines.
 Do not treat command display as a sanitizer for untrusted terminal text.
 
 String arguments use Loguru format syntax. Strings stay literal when no arguments are
@@ -224,7 +225,9 @@ Accepted Boolean values are `1`, `true`, `yes`, and `on`, or `0`, `false`, `no`,
 and `off`. Case and outer whitespace do not matter. An invalid applicable value
 raises `ConfigurationError` before queue submission.
 
-Do not use Python `-O` or `-OO`. Beartype disables runtime checks in those modes.
+The library has typed interfaces for Ty and other static type checkers. It does not
+check every argument at run time. Explicit checks protect redaction inputs, file
+destinations, configuration controls, prefixes, and module names. These checks also work with `-O`.
 
 ## Plan
 
@@ -299,7 +302,7 @@ Use `uv run nox --parallel 1` for sequential sessions.
 `just test-matrix` remains an alias. Nox reuses isolated environments, installs
 from the frozen lockfile, and fails if a required interpreter is missing.
 Use `uv run nox -s tests-3.12 -- --randomly-seed=42` to select a session and pass pytest arguments.
-Tests cover output, caller information, exceptions, runtime type checks, threads, import safety, and application handler isolation.
+Tests cover output, caller information, exceptions, explicit input checks, threads, import safety, and application handler isolation.
 
 Full test runs fail below 100% line and branch coverage of `logalog`.
 Coverage includes subprocess execution.

@@ -1,6 +1,6 @@
 """Isolate the Loguru compatibility boundary and Rich output."""
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from contextlib import suppress
 from dataclasses import dataclass
 from functools import partial
@@ -10,7 +10,6 @@ from traceback import TracebackException
 from types import TracebackType
 from typing import TYPE_CHECKING, Literal, cast
 
-from beartype import beartype
 from loguru._logger import Core, Logger
 from loguru._recattrs import RecordException
 from rich.console import Console, ConsoleRenderable, Group
@@ -54,7 +53,23 @@ class _SnapshotHandler(RichHandler):
         return Group(*content)
 
 
-@beartype
+_COMPRESSIONS = frozenset({"gz", "bz2", "xz", "lzma", "tar", "tar.gz", "tar.bz2", "tar.xz", "zip"})
+_FILE_CHECKS: dict[str, Callable[[object], bool]] = {
+    "path": lambda value: isinstance(value, (str, PathLike)),
+    "kind": lambda value: value in ("text", "json"),
+    "rotation": lambda value: value is None or type(value) in (str, int),
+    "retention": lambda value: value is None or type(value) in (str, int),
+    "compression": lambda value: (
+        value is None or (isinstance(value, str) and value in _COMPRESSIONS)
+    ),
+    "delay": lambda value: type(value) is bool,
+    "watch": lambda value: type(value) is bool,
+    "mode": lambda value: value in ("a", "w"),
+    "encoding": lambda value: type(value) is str,
+    "buffering": lambda value: type(value) is int,
+}
+
+
 @dataclass(frozen=True, slots=True)
 class FileDestination:
     """Configure one native Loguru file sink.
@@ -97,8 +112,19 @@ class FileDestination:
     encoding: str = "utf8"
     buffering: int = 1
 
+    def __post_init__(self) -> None:
+        """Reject a value that could write records to an unintended file or format.
 
-@beartype
+        Raises
+        ------
+        ValueError
+            If a field has an unsupported type or value.
+        """
+        for name, valid in _FILE_CHECKS.items():
+            if not valid(getattr(self, name)):
+                raise ValueError(f"invalid {name}")
+
+
 def _message_format(record: Mapping[str, object]) -> str:
     """Let Rich format exceptions instead of appending a second traceback."""
     return "{message}"
@@ -193,7 +219,6 @@ def close_backend(backend: Logger) -> None:
         raise failure
 
 
-@beartype
 def create_backend(*, enqueue: bool = True, files: Sequence[FileDestination] = ()) -> Logger:
     """Create a private logger with one reusable stderr console.
 

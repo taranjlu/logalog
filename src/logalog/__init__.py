@@ -2,8 +2,6 @@
 
 from atexit import register
 
-from beartype import beartype
-
 from ._backend import FileDestination
 from ._configuration import Configuration, ConfigurationError, load_configuration
 from ._logger import Logger as _Logger
@@ -23,7 +21,6 @@ LOG = _Logger()
 register(LOG._close_at_exit)
 
 
-@beartype
 def initialize_worker(owner: _Logger) -> None:
     """Connect this process's shared logger to an owner's queue.
 

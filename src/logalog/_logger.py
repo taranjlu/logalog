@@ -18,7 +18,6 @@ from types import FunctionType, TracebackType
 from typing import Literal, NamedTuple, ParamSpec, TypeVar, cast, overload
 from weakref import WeakSet
 
-from beartype import beartype
 from loguru._logger import Logger as LoguruLogger
 from rich.console import Console, RenderableType
 from rich.text import Text
@@ -47,13 +46,11 @@ class _Source(NamedTuple):
     line: int
 
 
-@beartype
 def _quote_command(arguments: Sequence[str], *, windows: bool = os_name == "nt") -> str:
     """Quote an argument vector for the selected platform convention."""
     return list2cmdline(arguments) if windows else shell_join(arguments)
 
 
-@beartype
 class _Section:
     """Manage one logger section without changing exception behavior."""
 
@@ -111,7 +108,6 @@ class _Section:
 
 
 @cache
-@beartype
 def _control_names(module: str, prefix: str) -> tuple[tuple[str, str, str], ...]:
     """Cache stable environment names for a module and its parents."""
     parts = module.split(".")
@@ -131,7 +127,6 @@ def _control_names(module: str, prefix: str) -> tuple[tuple[str, str, str], ...]
     return (global_names, *module_names)
 
 
-@beartype
 def environment_names(module: str, *, prefix: str = "LOGALOG") -> dict[str, str]:
     """Return the global and exact-module environment variable names.
 
@@ -153,7 +148,6 @@ def environment_names(module: str, *, prefix: str = "LOGALOG") -> dict[str, str]
     }
 
 
-@beartype
 def _validate(module: str, prefix: str) -> None:
     """Validate values that form environment variable names."""
     check_module(module)
@@ -161,7 +155,6 @@ def _validate(module: str, prefix: str) -> None:
         raise ValueError("Prefix must contain uppercase ASCII letters, digits, or underscores")
 
 
-@beartype
 def _boolean(name: str, value: str) -> bool:
     """Parse a deterministic environment Boolean."""
     normalized = value.strip().lower()
@@ -172,7 +165,6 @@ def _boolean(name: str, value: str) -> bool:
     raise ConfigurationError(f"Invalid Boolean value for {name}")
 
 
-@beartype
 def _controls(
     module: str,
     prefix: str,
@@ -199,16 +191,16 @@ def _controls(
     return cast(tuple[bool, bool, bool], tuple(values))
 
 
-@beartype
 def _file_path(destination: FileDestination) -> str:
     """Check each destination type and resolve its path for duplicate detection."""
+    if not isinstance(destination, FileDestination):
+        raise TypeError("Each file destination must be a FileDestination")
     path = fspath(destination.path)
     if not path:
         raise ValueError("File path must not be empty")
     return normcase(realpath(path))
 
 
-@beartype
 def _validate_files(files: tuple[FileDestination, ...]) -> None:
     """Reject empty and repeated paths before backend setup."""
     paths = [_file_path(destination) for destination in files]
@@ -216,7 +208,6 @@ def _validate_files(files: tuple[FileDestination, ...]) -> None:
         raise ValueError("File destination paths must be unique")
 
 
-@beartype
 class Logger:
     """Send typed log calls to an isolated, lazily initialized backend."""
 
@@ -428,6 +419,10 @@ class Logger:
 
     def _decorate(self, function: Callable[P, R], *, elapsed: bool) -> Callable[P, R]:
         """Build the matching synchronous or asynchronous wrapper."""
+        if isinstance(function, (classmethod, staticmethod)):
+            # Accept @LOG above @classmethod or @staticmethod as well as below.
+            method = cast(Callable[P, R], function.__func__)
+            return cast(Callable[P, R], type(function)(self._decorate(method, elapsed=elapsed)))
         if isgeneratorfunction(function) or isasyncgenfunction(function):
             raise TypeError("LOG does not support generator functions")
         name = getattr(function, "__qualname__", type(function).__qualname__)
@@ -536,14 +531,11 @@ class Logger:
         exception: bool = False,
         source: _Source | None = None,
     ) -> None:
-        """Preserve the external caller through library and Beartype wrappers."""
+        """Preserve the external caller through library frames."""
         frame = currentframe()
         depth = 0
         try:
-            while frame is not None and (
-                frame.f_globals.get("__name__", "").startswith("logalog.")
-                or frame.f_code.co_filename.startswith("<@beartype(logalog.")
-            ):
+            while frame is not None and frame.f_globals.get("__name__", "").startswith("logalog."):
                 depth += 1
                 frame = frame.f_back
             module = (
@@ -574,8 +566,8 @@ class Logger:
                 raise RuntimeError("Logger is shut down")
             self._active += 1
         try:
-            # Skip the delivery frame and its Beartype wrapper.
-            self._deliver(level, message, args, fields, depth + 2, exception, source)
+            # Also skip the delivery frame.
+            self._deliver(level, message, args, fields, depth + 1, exception, source)
         finally:
             with self._lock:
                 self._active -= 1

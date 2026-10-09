@@ -11,7 +11,6 @@ from tomllib import load as load_toml
 from typing import cast
 
 import yaml
-from beartype import beartype
 from configurator import Config
 from configurator.merge import merge_dict
 from yaml.constructor import ConstructorError
@@ -22,15 +21,12 @@ from ._backend import FileDestination
 _ROOT_KEYS = frozenset({"synchronous", "prefix", "verbose", "debug", "silent", "modules", "files"})
 _CONTROL_KEYS = frozenset({"verbose", "debug", "silent"})
 _FILE_KEYS = frozenset(FileDestination.__dataclass_fields__)
-_KINDS = frozenset({"text", "json"})
-_COMPRESSIONS = frozenset({"gz", "bz2", "xz", "lzma", "tar", "tar.gz", "tar.bz2", "tar.xz", "zip"})
 
 
 class _UniqueSafeLoader(yaml.SafeLoader):
     """Reject duplicate YAML mapping keys."""
 
 
-@beartype
 def _mapping(loader: _UniqueSafeLoader, node: yaml.Node) -> dict[object, object]:
     """Build one safe YAML mapping with unique keys."""
     if not isinstance(node, yaml.MappingNode):
@@ -64,7 +60,6 @@ _UniqueSafeLoader.add_implicit_resolver(
 )
 
 
-@beartype
 @dataclass(frozen=True, slots=True)
 class Configuration:
     """Contain validated settings from explicit files."""
@@ -78,17 +73,28 @@ class Configuration:
     files: tuple[FileDestination, ...] = ()
 
     def __post_init__(self) -> None:
-        """Validate every module entry, including programmatic configuration."""
-        names = [_module_name(entry) for entry in self.modules]
+        """Validate controls, including programmatic configuration.
+
+        Raises
+        ------
+        ConfigurationError
+            If a control is not a Boolean or a module name is invalid or repeated.
+        """
+        # A truthy non-Boolean value could silence or enable output by mistake.
+        if any(
+            type(value) is not bool
+            for value in (self.synchronous, self.verbose, self.debug, self.silent)
+        ):
+            raise ConfigurationError("Delivery and control settings must be Booleans")
+        for module, controls in self.modules:
+            check_module(module)
+            if len(controls) != 3 or any(
+                value is not None and type(value) is not bool for value in controls
+            ):
+                raise ConfigurationError(f"Module {module} controls must be Booleans or None")
+        names = [module for module, _ in self.modules]
         if len(names) != len(set(names)):
             raise ConfigurationError("Module names must be unique")
-
-
-@beartype
-def _module_name(entry: tuple[str, tuple[bool | None, bool | None, bool | None]]) -> str:
-    """Check a complete module entry without sampled outer-container validation."""
-    check_module(entry[0])
-    return entry[0]
 
 
 def check_module(module: str) -> None:
@@ -108,7 +114,6 @@ def check_module(module: str) -> None:
         raise ConfigurationError("Module names must have nonempty dot-separated parts")
 
 
-@beartype
 def _pairs(pairs: list[tuple[str, object]]) -> dict[str, object]:
     """Reject duplicate JSON object keys."""
     result: dict[str, object] = {}
@@ -119,7 +124,6 @@ def _pairs(pairs: list[tuple[str, object]]) -> dict[str, object]:
     return result
 
 
-@beartype
 def _read(path: Path) -> object:
     """Read one supported document without discovery or interpolation."""
     with path.open("rb") as stream:
@@ -134,7 +138,6 @@ def _read(path: Path) -> object:
     raise ValueError("Supported configuration suffixes are .toml, .json, .yaml, and .yml")
 
 
-@beartype
 def _dict(value: object, source: Path, setting: str) -> Mapping[str, object]:
     """Require a string-keyed mapping."""
     if not isinstance(value, Mapping) or any(not isinstance(key, str) for key in value):
@@ -142,7 +145,6 @@ def _dict(value: object, source: Path, setting: str) -> Mapping[str, object]:
     return cast(Mapping[str, object], value)
 
 
-@beartype
 def _keys(value: Mapping[str, object], allowed: frozenset[str], source: Path, setting: str) -> None:
     """Reject unknown setting names."""
     if unknown := value.keys() - allowed:
@@ -153,7 +155,6 @@ class ConfigurationError(ValueError):
     """Report invalid file or live-control configuration."""
 
 
-@beartype
 def _bool(value: object, source: Path, setting: str) -> bool:
     """Require a Boolean without integer coercion."""
     if type(value) is not bool:
@@ -161,13 +162,11 @@ def _bool(value: object, source: Path, setting: str) -> bool:
     return value
 
 
-@beartype
 def _optional_bool(value: object, source: Path, setting: str) -> bool | None:
     """Require a Boolean or an omitted module control."""
     return _bool(value, source, setting) if value is not None else None
 
 
-@beartype
 def _files(value: object, source: Path) -> tuple[FileDestination, ...]:
     """Validate file destinations and resolve their paths from their source."""
     if not isinstance(value, list):
@@ -182,30 +181,15 @@ def _files(value: object, source: Path) -> tuple[FileDestination, ...]:
         _keys(data, _FILE_KEYS, source, setting)
         if not isinstance(data.get("path"), str) or not data["path"]:
             raise ConfigurationError(f"{source}: {setting}.path must be a string")
-        checks = {
-            "kind": lambda item: isinstance(item, str) and item in _KINDS,
-            "rotation": lambda item: item is None or type(item) in {str, int},
-            "retention": lambda item: item is None or type(item) in {str, int},
-            "compression": lambda item: (
-                item is None or (isinstance(item, str) and item in _COMPRESSIONS)
-            ),
-            "delay": lambda item: type(item) is bool,
-            "watch": lambda item: type(item) is bool,
-            "mode": lambda item: isinstance(item, str) and item in {"a", "w"},
-            "encoding": lambda item: type(item) is str,
-            "buffering": lambda item: type(item) is int,
-        }
-        if invalid := next(
-            (name for name, check in checks.items() if name in data and not check(data[name])), None
-        ):
-            raise ConfigurationError(f"{source}: invalid {setting}.{invalid}")
         values = dict(data)
         values["path"] = source.parent / cast(str, data["path"])
-        destinations.append(FileDestination(**values))  # ty: ignore[invalid-argument-type]
+        try:
+            destinations.append(FileDestination(**values))  # ty: ignore[invalid-argument-type]
+        except ValueError as error:
+            raise ConfigurationError(f"{source}: {setting}: {error}") from None
     return tuple(destinations)
 
 
-@beartype
 def _validate(data: Mapping[str, object], source: Path) -> Configuration:
     """Convert a merged document to strict typed settings."""
     _keys(data, _ROOT_KEYS, source, "configuration")
@@ -243,7 +227,6 @@ def _validate(data: Mapping[str, object], source: Path) -> Configuration:
     )
 
 
-@beartype
 def load_configuration(*sources: str | PathLike[str]) -> Configuration:
     """Load explicit files in order, with later values taking priority.
 

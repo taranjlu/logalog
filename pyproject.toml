@@ -9,7 +9,6 @@ description = "Structured logging with Loguru and Rich"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "beartype>=0.22.9,<0.23",
     "configurator>=3.2.0,<4",
     "loguru>=0.7.3,<0.8",
     "pyyaml>=6.0.3,<7",
