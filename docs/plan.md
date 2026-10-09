@@ -75,7 +75,10 @@ Defer the capture of standard-library logs. Add that integration only through an
 
 Decision on 2026-10-09: `LOG.configure(standard_logging=True)` is that explicit option.
 It is off by default. When enabled, it records the root handlers and level, replaces
-the handlers with one logalog handler, and sets the root level to `NOTSET`.
+the handlers with one logalog handler, and sets the root level from the controls at that
+moment: `NOTSET` with a debug control on, 15 with a verbose control on, else `INFO`.
+A later debug control does not show standard `debug` records. This rule keeps library
+`debug` calls at about 0.1 µs instead of 5.4 µs.
 Shutdown removes the logalog handler and restores the recorded handlers and level.
 Records keep their logger name as the module, so module controls apply to them.
 The README describes the complete policy.

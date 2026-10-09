@@ -18,12 +18,21 @@ root.addHandler(previous)
 root.setLevel(logging.WARNING)
 
 LOG.configure(standard_logging=True)
+assert root.level == logging.INFO
 LOG.configure(standard_logging=False)
+os.environ["LOGALOG_VERBOSE"] = "1"
+LOG.configure(standard_logging=True)
+assert root.level == 15
+LOG.configure(standard_logging=False)
+del os.environ["LOGALOG_VERBOSE"]
 assert root.handlers == [previous] and root.level == logging.WARNING
+# A debug control must be on before the takeover, so the root accepts debug records.
+os.environ[environment_names("visible.lib")["module_debug"]] = "1"
 LOG.configure(stderr="json", standard_logging=True)
-assert previous not in root.handlers
+assert previous not in root.handlers and root.level == logging.NOTSET
 
 logging.getLogger("uvicorn.error").info("server %s", "started")
+logging.getLogger("visible.lib").debug("library debug")
 logging.getLogger("psycopg").debug("hidden-debug")
 logging.getLogger("app").log(5, "hidden-trace")
 os.environ[environment_names("uvicorn.access")["module_silent"]] = "1"
@@ -56,8 +65,9 @@ assert stream.getvalue() == "after-shutdown\n", stream.getvalue()
     assert not any("hidden" in json.dumps(record) for record in records)
     assert [(record["name"], record["level"], record["message"]) for record in records] == [
         ("uvicorn.error", "INFO", "server started"),
+        ("visible.lib", "DEBUG", "library debug"),
         ("app", "ERROR", "request failed"),
     ]
     assert records[0]["function"] == "<module>"
-    assert records[1]["exception"]["type"] == "ValueError"
-    assert "failure-marker" in records[1]["exception"]["traceback"]
+    assert records[2]["exception"]["type"] == "ValueError"
+    assert "failure-marker" in records[2]["exception"]["traceback"]

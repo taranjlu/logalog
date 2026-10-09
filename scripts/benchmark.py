@@ -47,6 +47,19 @@ for _ in range({count}):
 print((time.perf_counter() - start) / {count} * 1e6)
 """
 
+STANDARD_DEBUG = """
+import logging, os, sys, time
+from logalog import LOG
+sys.stderr = open(os.devnull, "w")
+LOG.configure(synchronous=True, standard_logging={takeover})
+logger = logging.getLogger("library.module")
+logger.debug("warm up")
+start = time.perf_counter()
+for _ in range({count}):
+    logger.debug("event")
+print((time.perf_counter() - start) / {count} * 1e6)
+"""
+
 THREADS = """
 import os, sys, time
 from concurrent.futures import ThreadPoolExecutor
@@ -194,6 +207,12 @@ def main() -> None:
         ),
         "emitted info call, JSON stderr (µs)": lambda: _probe(
             PER_CALL.format(method="info", count=2000, stderr="json"), environment
+        ),
+        "standard debug call, no takeover (µs)": lambda: _probe(
+            STANDARD_DEBUG.format(takeover=False, count=20000), environment
+        ),
+        "standard debug call, takeover (µs)": lambda: _probe(
+            STANDARD_DEBUG.format(takeover=True, count=20000), environment
         ),
         "8 threads, synchronous (records/s)": lambda: _probe(
             THREADS.format(synchronous=True, count=250), environment

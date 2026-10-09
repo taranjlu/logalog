@@ -170,3 +170,18 @@ The benchmark has two rows for the `json` mode. Both use the code after round 5.
 A CLI hook that uses `json` or `plain` saves about 34 ms per process.
 Most of the remaining hook time is interpreter startup and the Loguru import.
 Loguru imports `asyncio` at load time.
+
+## Follow-up: standard logging root level
+
+Change: the takeover set the root level to `NOTSET`. Every library `debug` call then built
+a `LogRecord` and ran the handler and the live controls, also with debug output off.
+The takeover now sets the root level from the controls at takeover time.
+
+Two benchmark rows call `logging.getLogger("library.module").debug()` with no debug control.
+
+| Measurement | `NOTSET` root | Level from controls |
+| --- | ---: | ---: |
+| standard debug call, no takeover (µs) | 0.1 | 0.1 |
+| standard debug call, takeover (µs) | 5.4 | 0.1 |
+
+The cost was material for chatty libraries such as psycopg, asyncio, and httpx.

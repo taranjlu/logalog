@@ -276,7 +276,16 @@ When you enable it, `LOG.configure()` does these steps at once:
 
 - It records the root handlers and the root level.
 - It removes those handlers and adds one logalog handler.
-- It sets the root level to `NOTSET`, so the live logalog controls decide.
+- It sets the root level from the controls at that moment. The level is `NOTSET` when
+  any debug control is on, 15 when only a verbose control is on, and `INFO` otherwise.
+  Global, module, stored, and environment controls count. The check is conservative.
+
+Records below the root level stop in the standard logger at almost no cost.
+A library `debug` call costs about 0.1 µs, against 5.4 µs with a `NOTSET` root.
+The live controls still decide each record that passes the root level.
+Set a debug or verbose control for standard-library loggers before the takeover.
+A debug control that you turn on later does not show standard `debug` records.
+Configure again with `standard_logging=False` and then `True` to apply new controls.
 
 Records that reach the root logger then use logalog delivery, stderr mode, files,
 sections, and live controls. The logger name is the module for the controls and for
@@ -297,6 +306,7 @@ The takeover applies only to records that reach the root logger:
 - A logger with its own handlers and `propagate=False` keeps its own output.
   For Uvicorn, pass `log_config=None` to `uvicorn.run()` so its loggers propagate.
 - A logger with its own level still filters records before the root.
+- A logger with level `NOTSET` uses the root level as its effective level.
 - Silence a content-bearing logger with a module control, for example
   `modules: {"uvicorn.access": {silent: true}}` in a configuration file.
 - If logalog rejects a record, for example for an invalid control value, the standard

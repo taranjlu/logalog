@@ -45,13 +45,15 @@ class Takeover(NamedTuple):
     level: int
 
 
-def take_over(logger: "Logger") -> Takeover:
+def take_over(logger: "Logger", level: int) -> Takeover:
     """Replace the root handlers with one logalog handler.
 
     Parameters
     ----------
     logger : Logger
         Logger that receives every standard record.
+    level : int
+        Root level. Lower levels stop in the standard logger at almost no cost.
 
     Returns
     -------
@@ -63,8 +65,7 @@ def take_over(logger: "Logger") -> Takeover:
     for handler in takeover.handlers:
         root.removeHandler(handler)
     root.addHandler(takeover.handler)
-    # Live logalog controls decide which records appear.
-    root.setLevel(logging.NOTSET)
+    root.setLevel(level)
     return takeover
 
 

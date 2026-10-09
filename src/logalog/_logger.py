@@ -374,9 +374,32 @@ class Logger:
             if standard_logging and self._standard is None:
                 from ._standard import take_over
 
-                self._standard = take_over(self)
+                self._standard = take_over(self, self._standard_level())
         if not standard_logging:
             self._release_standard_logging()
+
+    def _standard_level(self) -> int:
+        """Return the lowest standard level that the controls can show at takeover time.
+
+        Returns
+        -------
+        int
+            ``0`` when a debug control is on, ``15`` when only a verbose control is on,
+            or ``20``. A control that changes later does not change this level.
+        """
+        enabled = [
+            any(controls[index] for controls in self._module_defaults.values())
+            or self._control_defaults[index]
+            for index in (0, 1)
+        ]
+        module = f"{self._prefix}_MODULE__"
+        for name, value in environ.items():
+            for index, suffix in enumerate(("_VERBOSE", "_DEBUG")):
+                if name.endswith(suffix) and (
+                    name == f"{self._prefix}{suffix}" or name.startswith(module)
+                ):
+                    enabled[index] |= _boolean(name, value)
+        return 0 if enabled[1] else 15 if enabled[0] else 20
 
     def _release_standard_logging(self) -> None:
         """Restore the root logging handlers and level that the takeover recorded."""
