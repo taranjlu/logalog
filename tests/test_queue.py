@@ -250,6 +250,33 @@ LOG.info("main-exit-marker")
         assert output.count("late-exit-marker") == 1
 
 
+def test_explicit_shutdown_stays_final_at_exit() -> None:
+    """Keep an explicit shutdown final for earlier exit handlers."""
+    script = """
+import atexit
+
+def late():
+    from logalog import LOG
+    try:
+        LOG.info("late-exit-marker")
+    except RuntimeError:
+        print("rejected")
+
+atexit.register(late)
+from logalog import LOG
+LOG.shutdown()
+"""
+    result = subprocess.run(  # noqa: S603 -- Fixed test script without a shell.
+        [sys.executable, "-I", "-c", script],
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "rejected\n"
+    assert "late-exit-marker" not in result.stderr
+
+
 def test_fork_during_accepted_call_does_not_block_child() -> None:
     """Give a forked child a usable logger while a parent thread logs."""
     script = r"""

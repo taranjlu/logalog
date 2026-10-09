@@ -473,7 +473,10 @@ class Logger:
 
         Exit handlers that ran before import can still log. Those records use
         synchronous delivery. The owner reopens its files in append mode.
+        An explicit earlier shutdown stays final.
         """
+        if self._closed:
+            return
         try:
             self.shutdown()
         finally:
