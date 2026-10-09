@@ -9,8 +9,8 @@ import pytest
 from rich.text import Text
 
 from logalog import FileDestination
-from logalog._backend import _SnapshotHandler
 from logalog._logger import Logger
+from logalog._rich import _SnapshotHandler
 
 
 @pytest.mark.parametrize("synchronous", [False, True])

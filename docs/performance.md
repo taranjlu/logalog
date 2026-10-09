@@ -156,3 +156,17 @@ A YAML path without the extra raises `ConfigurationError` that names the extra.
 
 Import is about 1 ms faster and now equals `import logging` (12.1 ms in this run).
 The runtime dependencies are now Loguru and Rich only.
+
+## Output modes
+
+The `plain` and `json` stderr modes do not load Rich for plain messages.
+The benchmark has two rows for the `json` mode. Both use the code after round 5.
+
+| Measurement | `rich` | `json` |
+| --- | ---: | ---: |
+| hook process with one record (ms) | 92.4 | 58.5 |
+| emitted info call (µs) | 232.3 | 12.5 |
+
+A CLI hook that uses `json` or `plain` saves about 34 ms per process.
+Most of the remaining hook time is interpreter startup and the Loguru import.
+Loguru imports `asyncio` at load time.

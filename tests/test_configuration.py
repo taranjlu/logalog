@@ -57,6 +57,7 @@ modules:
         tmp_path / "last.toml",
         """
 synchronous = true
+stderr = "json"
 files = [{path = "logs/events.log", rotation = 100, retention = 2}]
 """,
     )
@@ -64,6 +65,7 @@ files = [{path = "logs/events.log", rotation = 100, retention = 2}]
     configuration = load_configuration(project, json_path, yaml_path, toml_path)
 
     assert configuration.synchronous is True
+    assert configuration.stderr == "json"
     assert configuration.prefix == "JSON"
     assert configuration.debug is True
     assert dict(configuration.modules) == {"app": (False, True, None)}
@@ -150,6 +152,7 @@ def test_live_false_overrides_stored_global_silence(
         ("settings.yaml", "debug: on", "debug must be a Boolean"),
         ("settings.yaml", "synchronous: 0", "synchronous must be a Boolean"),
         ("settings.yaml", "prefix: 2", "invalid prefix"),
+        ("settings.yaml", "stderr: color", "stderr must be"),
         ("settings.yaml", "modules: []", "modules must be a mapping"),
         ("settings.yaml", "modules: {bad..name: {}}", "nonempty dot-separated parts"),
         ("settings.yaml", "modules: {app: []}", "modules.app must be a mapping"),

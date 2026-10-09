@@ -21,7 +21,14 @@ from types import FrameType, FunctionType, TracebackType
 from typing import TYPE_CHECKING, Literal, NamedTuple, ParamSpec, TypeVar, cast, overload
 from weakref import WeakSet
 
-from ._configuration import Configuration, ConfigurationError, FileDestination, check_module
+from ._configuration import (
+    Configuration,
+    ConfigurationError,
+    FileDestination,
+    Stderr,
+    check_module,
+    check_stderr,
+)
 
 if TYPE_CHECKING:
     from loguru._logger import Logger as LoguruLogger
@@ -38,6 +45,7 @@ _FALSE = frozenset({"0", "false", "no", "off"})
 _REDACTED = "[REDACTED]"
 _LOGGERS: WeakSet[Logger] = WeakSet()
 _RICH_SNAPSHOT = "__logalog_rich_snapshot__"
+_CONSOLE_TRACEBACK = "__logalog_console_traceback__"
 # Each level reads only the controls that can suppress it.
 _SILENT = 2
 _CATEGORY = {"VERBOSE": 0, "DEBUG": 1, "TRACE": 1}
@@ -234,6 +242,7 @@ class Logger:
         self,
         *,
         synchronous: bool | None = None,
+        stderr: Stderr = "rich",
         prefix: str = "LOGALOG",
         files: tuple[FileDestination, ...] = (),
     ) -> None:
@@ -244,6 +253,8 @@ class Logger:
         synchronous : bool or None, default=None
             Delivery mode. ``None`` writes in the calling thread until :meth:`initialize`
             selects the queue for worker processes.
+        stderr : Stderr, default="rich"
+            Stderr output: ``"rich"`` for a terminal, ``"plain"`` lines, or ``"json"`` lines.
         prefix : str, default="LOGALOG"
             Uppercase prefix for live control environment variables.
         files : tuple[FileDestination, ...], default=()
@@ -251,10 +262,12 @@ class Logger:
         """
         _validate("module", prefix)
         _validate_files(files)
+        check_stderr(stderr)
         self._backend: LoguruLogger | None = None
         self._lock = Condition()
         self._active = 0
         self._synchronous = synchronous
+        self._stderr = stderr
         self._prefix = prefix
         self._files = files
         self._control_defaults = (False, False, False)
@@ -290,7 +303,9 @@ class Logger:
 
                 # Automatic delivery uses the queue only for worker processes.
                 self._synchronous = not queue if self._synchronous is None else self._synchronous
-                self._backend = create_backend(enqueue=not self._synchronous, files=self._files)
+                self._backend = create_backend(
+                    enqueue=not self._synchronous, files=self._files, stderr=self._stderr
+                )
                 self._owner_pid = getpid()
             return self._backend
 
@@ -299,6 +314,7 @@ class Logger:
         *,
         configuration: Configuration | None = None,
         synchronous: bool | None = None,
+        stderr: Stderr | None = None,
         prefix: str | None = None,
         files: tuple[FileDestination, ...] | None = None,
     ) -> None:
@@ -311,6 +327,8 @@ class Logger:
         synchronous : bool or None, default=None
             ``True`` writes in the calling thread. ``False`` uses the Loguru queue.
             ``None`` keeps the loaded setting, which defaults to automatic delivery.
+        stderr : Stderr or None, default=None
+            Stderr output mode. ``None`` keeps the loaded setting, which defaults to ``"rich"``.
         prefix : str or None, default=None
             Uppercase prefix for live control environment variables.
         files : tuple[FileDestination, ...] or None, default=None
@@ -323,15 +341,18 @@ class Logger:
         """
         selected = configuration or Configuration()
         synchronous = selected.synchronous if synchronous is None else synchronous
+        stderr = selected.stderr if stderr is None else stderr
         prefix = selected.prefix if prefix is None else prefix
         files = selected.files if files is None else files
         _validate("module", prefix)
         _validate_files(files)
+        check_stderr(stderr)
         module_defaults = dict(selected.modules)
         with self._lock:
             if self._backend is not None or self._closed:
                 raise RuntimeError("Logger configuration is already fixed")
             self._synchronous = synchronous
+            self._stderr = stderr
             self._prefix = prefix
             self._files = files
             self._control_defaults = (selected.verbose, selected.debug, selected.silent)
@@ -352,6 +373,7 @@ class Logger:
         return {
             "backend": backend,
             "owner_pid": self._owner_pid,
+            "stderr": self._stderr,
             "prefix": self._prefix,
             "control_defaults": self._control_defaults,
             "module_defaults": self._module_defaults,
@@ -361,6 +383,7 @@ class Logger:
         """Restore a queued logger without creating a worker thread."""
         self._backend = cast("LoguruLogger", state["backend"])
         self._synchronous = False
+        self._stderr = cast("Stderr", state["stderr"])
         self._prefix = cast(str, state["prefix"])
         self._files = ()
         self._control_defaults = cast(tuple[bool, bool, bool], state["control_defaults"])
@@ -438,6 +461,7 @@ class Logger:
                 raise RuntimeError("Worker logger is already initialized")
             self._backend = owner._backend
             self._owner_pid = owner._owner_pid
+            self._stderr = owner._stderr
             self._prefix = owner._prefix
             self._files = ()
             self._control_defaults = owner._control_defaults
@@ -622,6 +646,10 @@ class Logger:
                 if not self._active:
                     self._lock.notify_all()
 
+    def _encodes_json(self) -> bool:
+        """Return whether stderr or a file destination encodes fields as JSON."""
+        return self._stderr != "rich" or any(file.kind == "json" for file in self._files)
+
     def _deliver(
         self,
         level: Level,
@@ -646,14 +674,14 @@ class Logger:
             }
             if isinstance(message, str):
                 message = indentation + message.replace("\n", f"\n{indentation}")
-        if fields and any(destination.kind == "json" for destination in self._files):
+        if fields and self._encodes_json():
             # Reject fields that JSON cannot encode before any destination accepts the event.
             json.dumps(fields, default=str)
 
         if not isinstance(message, str):
             if args:
                 raise ValueError("Rich renderables do not accept format arguments")
-            from ._backend import create_renderer, render_snapshot
+            from ._rich import create_renderer, render_snapshot
 
             if self._renderer is None:
                 self._renderer = create_renderer()

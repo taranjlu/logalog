@@ -80,7 +80,10 @@ class FileDestination:
                 raise ValueError(f"invalid {name}")
 
 
-_ROOT_KEYS = frozenset({"synchronous", "prefix", "verbose", "debug", "silent", "modules", "files"})
+_ROOT_KEYS = frozenset(
+    {"synchronous", "stderr", "prefix", "verbose", "debug", "silent", "modules", "files"}
+)
+Stderr = Literal["rich", "plain", "json"]
 _CONTROL_KEYS = frozenset({"verbose", "debug", "silent"})
 _FILE_KEYS = frozenset(FileDestination.__dataclass_fields__)
 
@@ -90,6 +93,7 @@ class Configuration:
     """Contain validated settings from explicit files."""
 
     synchronous: bool | None = None
+    stderr: Stderr = "rich"
     prefix: str = "LOGALOG"
     verbose: bool = False
     debug: bool = False
@@ -110,6 +114,7 @@ class Configuration:
             type(value) is not bool for value in (self.verbose, self.debug, self.silent)
         ):
             raise ConfigurationError("Delivery and control settings must be Booleans")
+        check_stderr(self.stderr)
         for module, controls in self.modules:
             check_module(module)
             if len(controls) != 3 or any(
@@ -119,6 +124,23 @@ class Configuration:
         names = [module for module, _ in self.modules]
         if len(names) != len(set(names)):
             raise ConfigurationError("Module names must be unique")
+
+
+def check_stderr(stderr: object) -> None:
+    """Reject an unknown stderr output mode.
+
+    Parameters
+    ----------
+    stderr : object
+        Requested mode.
+
+    Raises
+    ------
+    ConfigurationError
+        If the mode is not ``"rich"``, ``"plain"``, or ``"json"``.
+    """
+    if stderr not in ("rich", "plain", "json"):
+        raise ConfigurationError("stderr must be 'rich', 'plain', or 'json'")
 
 
 def check_module(module: str) -> None:
@@ -227,6 +249,11 @@ def _validate(data: Mapping[str, object], source: Path) -> Configuration:
     prefix = data.get("prefix", "LOGALOG")
     if not isinstance(prefix, str) or re.fullmatch(r"[A-Z][A-Z0-9_]*", prefix) is None:
         raise ConfigurationError(f"{source}: invalid prefix")
+    stderr = data.get("stderr", "rich")
+    try:
+        check_stderr(stderr)
+    except ConfigurationError as error:
+        raise ConfigurationError(f"{source}: {error}") from None
     modules_data = _dict(data.get("modules", {}), source, "modules")
     modules = []
     for module, raw_controls in modules_data.items():
@@ -247,6 +274,7 @@ def _validate(data: Mapping[str, object], source: Path) -> Configuration:
         )
     return Configuration(
         synchronous=_optional_bool(data.get("synchronous"), source, "synchronous"),
+        stderr=cast(Stderr, stderr),
         prefix=prefix,
         verbose=_bool(data.get("verbose", False), source, "verbose"),
         debug=_bool(data.get("debug", False), source, "debug"),

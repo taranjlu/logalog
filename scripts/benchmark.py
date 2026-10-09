@@ -30,6 +30,7 @@ print((time.perf_counter() - imported) * 1000)
 
 HOOK = """
 from logalog import LOG
+LOG.configure(stderr={stderr!r})
 LOG.info("hook event")
 """
 
@@ -37,7 +38,7 @@ PER_CALL = """
 import os, sys, time
 from logalog import LOG
 sys.stderr = open(os.devnull, "w")
-LOG.configure(synchronous=True)
+LOG.configure(synchronous=True, stderr={stderr!r})
 method = LOG.{method}
 method("warm up")
 start = time.perf_counter()
@@ -170,7 +171,12 @@ def main() -> None:
     measurements = {
         "import logging (ms)": lambda: _import_time("logging", environment),
         "import logalog (ms)": lambda: _import_time("logalog", environment),
-        "hook process with one record (ms)": lambda: _wall_time(HOOK, environment),
+        "hook process with one record (ms)": lambda: _wall_time(
+            HOOK.format(stderr="rich"), environment
+        ),
+        "hook process, JSON stderr (ms)": lambda: _wall_time(
+            HOOK.format(stderr="json"), environment
+        ),
         "first call, default delivery (ms)": lambda: _probe(
             FIRST_CALL.format(synchronous=None), environment
         ),
@@ -181,10 +187,13 @@ def main() -> None:
             FIRST_CALL.format(synchronous=False), environment
         ),
         "suppressed debug call (µs)": lambda: _probe(
-            PER_CALL.format(method="debug", count=20000), environment
+            PER_CALL.format(method="debug", count=20000, stderr="rich"), environment
         ),
         "emitted info call (µs)": lambda: _probe(
-            PER_CALL.format(method="info", count=2000), environment
+            PER_CALL.format(method="info", count=2000, stderr="rich"), environment
+        ),
+        "emitted info call, JSON stderr (µs)": lambda: _probe(
+            PER_CALL.format(method="info", count=2000, stderr="json"), environment
         ),
         "8 threads, synchronous (records/s)": lambda: _probe(
             THREADS.format(synchronous=True, count=250), environment

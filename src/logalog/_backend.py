@@ -1,170 +1,101 @@
-"""Isolate the Loguru compatibility boundary and Rich output."""
+"""Isolate the Loguru compatibility boundary and the stderr output modes."""
 
+from __future__ import annotations
+
+import json
+import sys
 from collections.abc import Mapping, Sequence
 from contextlib import suppress
 from functools import partial
-from logging import LogRecord
 from traceback import TracebackException
-from types import TracebackType
 from typing import TYPE_CHECKING, cast
 
 from loguru._logger import Core, Logger
 from loguru._recattrs import RecordException
-from rich.console import Console, ConsoleRenderable, Group, RenderableType
-from rich.logging import RichHandler
-from rich.text import Text
-from rich.traceback import Traceback
 
-from ._configuration import FileDestination
-from ._logger import _RICH_SNAPSHOT
-
-_CONSOLE_TRACEBACK = "__logalog_console_traceback__"
+from ._configuration import FileDestination, Stderr
+from ._logger import _CONSOLE_TRACEBACK, _RICH_SNAPSHOT
 
 if TYPE_CHECKING:
-    from loguru import Message
-
-
-class _SnapshotHandler(RichHandler):
-    """Use a producer-rendered Rich snapshot when one is present."""
-
-    def render_message(self, record: LogRecord, message: str) -> ConsoleRenderable:
-        """Return the accepted snapshot without parsing message markup."""
-        snapshot = cast(dict[str, object], record.__dict__["extra"]).get(_RICH_SNAPSHOT)
-        return snapshot if isinstance(snapshot, Text) else super().render_message(record, message)
-
-    def render(
-        self,
-        *,
-        record: LogRecord,
-        traceback: Traceback | None,
-        message_renderable: ConsoleRenderable,
-    ) -> ConsoleRenderable:
-        """Keep producer-rendered snapshots outside the narrower metadata columns."""
-        if _RICH_SNAPSHOT not in cast(dict[str, object], record.__dict__["extra"]):
-            return super().render(
-                record=record,
-                traceback=traceback,
-                message_renderable=message_renderable,
-            )
-        header = super().render(record=record, traceback=None, message_renderable=Text(""))
-        content = [header, message_renderable]
-        if traceback is not None:
-            content.append(traceback)
-        return Group(*content)
-
-
-def create_renderer() -> Console:
-    """Create the producer console that renders Rich objects to snapshots.
-
-    Returns
-    -------
-    Console
-        Console that follows the current stderr width and color support.
-    """
-    return Console(stderr=True, markup=False, highlight=False)
-
-
-def render_snapshot(console: Console, message: RenderableType, indentation: str | None) -> Text:
-    """Render a Rich object to styled text before queue submission.
-
-    Parameters
-    ----------
-    console : Console
-        Producer console from :func:`create_renderer`.
-    message : RenderableType
-        Rich object to render.
-    indentation : str or None
-        Section indentation for each line, or ``None`` outside a section.
-
-    Returns
-    -------
-    Text
-        Stable styled snapshot.
-    """
-    options = console.options
-    if indentation is not None:
-        options = options.update_width(max(1, options.max_width - len(indentation)))
-    snapshot = Text.assemble(
-        *(
-            (segment.text, segment.style) if segment.style else segment.text
-            for segment in console.render(message, options)
-        )
-    )
-    if indentation is None:
-        return snapshot
-    if snapshot.plain.endswith("\n"):
-        snapshot = snapshot[:-1]
-    return Text(indentation) + Text(f"\n{indentation}").join(snapshot.split(allow_blank=True))
+    from loguru import Message, Record
 
 
 def _message_format(record: Mapping[str, object]) -> str:
-    """Let Rich format exceptions instead of appending a second traceback."""
+    """Let each stderr sink format exceptions instead of appending a second traceback."""
     return "{message}"
 
 
-def _prepare_console(record: dict[str, object], *, enqueue: bool) -> None:
+def _prepare_console(record: dict[str, object], *, traceback_text: bool) -> None:
     """Keep presentation data outside native JSON fields without mutating the event."""
     extra = cast(dict[str, object], record["extra"])
     record[_RICH_SNAPSHOT] = extra.pop(_RICH_SNAPSHOT, None)
     exception = cast(RecordException | None, record["exception"])
-    if enqueue and exception is not None and exception.type is not None:
+    if traceback_text and exception is not None and exception.type is not None:
         record[_CONSOLE_TRACEBACK] = "".join(
             TracebackException(exception.type, exception.value, exception.traceback).format()
         ).rstrip()
 
 
-class _ConsoleSink:
-    """Present a destination-local copy of each event through the Rich handler."""
+def _field(value: object) -> str:
+    """Show one field value without spaces or quotes that would break the line."""
+    if isinstance(value, str) and value and not any(c.isspace() or c in '="' for c in value):
+        return value
+    return json.dumps(value, default=str, ensure_ascii=False)
 
-    def __init__(self, handler: _SnapshotHandler, enqueue: bool) -> None:
-        self._handler = handler
-        self._enqueue = enqueue
 
-    def write(self, message: "Message") -> None:
-        """Convert one Loguru event to a standard record with its original metadata."""
-        source = message.record
-        presentation = cast(dict[str, object], source)
-        snapshot = presentation.get(_RICH_SNAPSHOT)
-        text = source["message"]
-        exception = source["exception"]
-        if self._enqueue and (traceback := presentation.get(_CONSOLE_TRACEBACK)):
-            text = f"{text}\n{traceback}"
-            if isinstance(snapshot, Text):
-                snapshot = snapshot.copy()
-                snapshot.append(f"\n{traceback}")
-            exception = None
-        extra = dict(source["extra"])
-        if isinstance(snapshot, Text):
-            extra[_RICH_SNAPSHOT] = snapshot
-        record = LogRecord(
-            source["name"] or "",
-            source["level"].no,
-            source["file"].path,
-            source["line"],
-            text,
-            (),
-            cast(
-                tuple[type[BaseException], BaseException, TracebackType | None] | None,
-                (exception.type, exception.value, exception.traceback) if exception else None,
-            ),
-            source["function"],
-        )
-        record.extra = extra
-        if exception:
-            record.exc_text = "\n"
-        record.levelname = source["level"].name
-        # Show event time and the producer, not delivery time and the writer thread.
-        record.created = source["time"].timestamp()
-        record.msecs = source["time"].microsecond // 1000
-        record.thread = source["thread"].id
-        record.threadName = source["thread"].name
-        record.process = source["process"].id
-        record.processName = source["process"].name
-        self._handler.handle(record)
+def _plain_line(record: Record) -> str:
+    """Format one readable line with the attached fields."""
+    time = record["time"]
+    line = (
+        f"{time:%Y-%m-%d %H:%M:%S}.{time.microsecond // 1000:03d} | "
+        f"{record['level'].name:<8} | "
+        f"{record['name']}:{record['function']}:{record['line']} - {record['message']}"
+    )
+    if record["extra"]:
+        line += " | " + " ".join(f"{key}={_field(value)}" for key, value in record["extra"].items())
+    if traceback := cast(dict[str, object], record).get(_CONSOLE_TRACEBACK):
+        line += f"\n{traceback}"
+    return line
 
-    def stop(self) -> None:
-        """Close the Rich handler."""
-        self._handler.close()
+
+def _json_line(record: Record) -> str:
+    """Format one JSON Lines record with the attached fields."""
+    exception = record["exception"]
+    return json.dumps(
+        {
+            "time": record["time"].isoformat(),
+            "level": record["level"].name,
+            "name": record["name"],
+            "function": record["function"],
+            "line": record["line"],
+            "process": record["process"].id,
+            "thread": record["thread"].name,
+            "message": record["message"],
+            "extra": record["extra"],
+            "exception": None
+            if exception is None or exception.type is None
+            else {
+                "type": exception.type.__name__,
+                "value": str(exception.value),
+                "traceback": cast(dict[str, object], record).get(_CONSOLE_TRACEBACK),
+            },
+        },
+        default=str,
+        ensure_ascii=False,
+    )
+
+
+class _StreamSink:
+    """Write plain or JSON lines to the current ``sys.stderr``."""
+
+    def __init__(self, stderr: Stderr) -> None:
+        self._format = _json_line if stderr == "json" else _plain_line
+
+    def write(self, message: Message) -> None:
+        """Write one record and flush the stream."""
+        stream = sys.stderr
+        stream.write(self._format(message.record) + "\n")
+        stream.flush()
 
 
 def close_backend(backend: Logger) -> None:
@@ -191,8 +122,10 @@ def close_backend(backend: Logger) -> None:
         raise failure
 
 
-def create_backend(*, enqueue: bool = True, files: Sequence[FileDestination] = ()) -> Logger:
-    """Create a private logger with one reusable stderr console.
+def create_backend(
+    *, enqueue: bool = True, files: Sequence[FileDestination] = (), stderr: Stderr = "rich"
+) -> Logger:
+    """Create a private logger with one stderr sink.
 
     Parameters
     ----------
@@ -200,6 +133,13 @@ def create_backend(*, enqueue: bool = True, files: Sequence[FileDestination] = (
         Send records through Loguru's multiprocessing queue.
     files : Sequence[FileDestination], default=()
         Native file destinations owned by this backend.
+    stderr : Stderr, default="rich"
+        Stderr output mode.
+
+    Returns
+    -------
+    Logger
+        Private Loguru logger with its sinks.
 
     Notes
     -----
@@ -220,21 +160,17 @@ def create_backend(*, enqueue: bool = True, files: Sequence[FileDestination] = (
         extra={},
     )
     backend.level("VERBOSE", no=15, color="<blue>", icon="")
-    backend = backend.patch(partial(_prepare_console, enqueue=enqueue))
+    # Rich renders live tracebacks itself. Other modes and the queue need plain text.
+    backend = backend.patch(partial(_prepare_console, traceback_text=enqueue or stderr != "rich"))
     try:
-        console = Console(stderr=True, markup=False, highlight=False)
-        handler = _SnapshotHandler(
-            console=console,
-            markup=False,
-            highlighter=None,
-            rich_tracebacks=True,
-            tracebacks_show_locals=False,
-            tracebacks_extra_lines=0,
-            enable_link_path=False,
-            keywords=[],
-        )
+        if stderr == "rich":
+            from ._rich import create_console_sink
+
+            sink: object = create_console_sink(enqueue)
+        else:
+            sink = _StreamSink(stderr)
         backend.add(
-            _ConsoleSink(handler, enqueue),
+            sink,
             level=0,
             format=_message_format,
             colorize=False,

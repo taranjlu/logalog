@@ -50,6 +50,24 @@ plain readable output. JSON records contain the same plain message and user fiel
 They do not contain ANSI sequences or private Rich objects. Suppressed events do not
 render their content.
 
+Select the stderr output mode before the first log call:
+
+- `rich`, the default, is for a terminal. It does not show attached fields.
+- `plain` writes one readable line per record, with attached fields as `key=value` at the end.
+  Values with spaces, quotes, or `=` use JSON quoting.
+- `json` writes one JSON object per line. The keys are `time`, `level`, `name`, `function`,
+  `line`, `process`, `thread`, `message`, `extra`, and `exception`.
+
+```python
+LOG.configure(stderr="json")
+LOG.info("request finished", request_id=request_id, status=201, elapsed_ms=12)
+```
+
+The `plain` and `json` modes do not load Rich, unless a message is a Rich object.
+They include exception tracebacks as text. With these modes, fields that JSON cannot
+encode raise `ValueError` before any destination receives the event.
+Use the `stderr` key in a configuration file to select the mode.
+
 By default, delivery is automatic. Records write in the calling thread until
 `LOG.initialize()` runs. That call creates the owner queue for worker processes.
 Call `LOG.configure(synchronous=True)` or `LOG.configure(synchronous=False)` before the
@@ -92,7 +110,7 @@ settings = load_configuration("pyproject.toml", "logging.yaml")
 LOG.configure(configuration=settings)
 ```
 
-The root keys are `synchronous`, `prefix`, `verbose`, `debug`, `silent`,
+The root keys are `synchronous`, `stderr`, `prefix`, `verbose`, `debug`, `silent`,
 `modules`, and `files`. An omitted or null `synchronous` selects automatic delivery. A module entry accepts only the three control keys.
 Each file entry accepts the `FileDestination` fields. Relative destination paths
 use the directory of the source that supplies the final `files` list.

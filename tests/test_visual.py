@@ -16,7 +16,7 @@ from rich.syntax import Syntax
 from rich.table import Table
 from rich.text import Text
 
-from logalog import _backend
+from logalog import _rich
 from logalog._logger import Logger
 
 ASSETS = Path(__file__).parent / "visual"
@@ -41,9 +41,9 @@ def _render_scene(
         markup=False,
         highlight=False,
     )
-    original_emit = _backend._SnapshotHandler.emit
+    original_emit = _rich._SnapshotHandler.emit
 
-    def emit(handler: _backend._SnapshotHandler, record: LogRecord) -> None:
+    def emit(handler: _rich._SnapshotHandler, record: LogRecord) -> None:
         record.pathname = "visual_example.py"
         record.lineno = 12
         original_emit(handler, record)
@@ -54,20 +54,20 @@ def _render_scene(
                 patch.delenv(name)
         patch.setenv("VISUAL_TEST_DEBUG", "1")
         patch.setenv("VISUAL_TEST_VERBOSE", "1")
-        patch.setattr(_backend, "Console", lambda **kwargs: console)
+        patch.setattr(_rich, "Console", lambda **kwargs: console)
         patch.setattr(
-            _backend,
+            _rich,
             "create_renderer",
             lambda: Console(
                 stderr=True, markup=False, highlight=False, width=width, color_system="truecolor"
             ),
         )
-        patch.setattr(_backend._SnapshotHandler, "emit", emit)
+        patch.setattr(_rich._SnapshotHandler, "emit", emit)
         # The console shows the event time. Fix the displayed time so images match.
         patch.setattr(
-            _backend,
+            _rich,
             "_SnapshotHandler",
-            partial(_backend._SnapshotHandler, log_time_format=lambda _: Text("12:00:00")),
+            partial(_rich._SnapshotHandler, log_time_format=lambda _: Text("12:00:00")),
         )
         log = Logger(synchronous=synchronous, prefix="VISUAL_TEST")
         try:
