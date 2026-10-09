@@ -38,6 +38,10 @@ _FALSE = frozenset({"0", "false", "no", "off"})
 _REDACTED = "[REDACTED]"
 _LOGGERS: WeakSet[Logger] = WeakSet()
 _RICH_SNAPSHOT = "__logalog_rich_snapshot__"
+# Each level reads only the controls that can suppress it.
+_SILENT = 2
+_CATEGORY = {"VERBOSE": 0, "DEBUG": 1, "TRACE": 1}
+_INHERIT = (None, None, None)
 
 
 class _Source(NamedTuple):
@@ -117,23 +121,28 @@ class _Section:
 
 
 @cache
-def _control_names(module: str, prefix: str) -> tuple[tuple[str, str, str], ...]:
-    """Cache stable environment names for a module and its parents."""
+def _control_names(module: str, prefix: str) -> tuple[tuple[str | None, tuple[str, str, str]], ...]:
+    """Cache each scope's stored-default key and environment names.
+
+    The global scope comes first and has no key. Parent modules follow the global scope.
+    """
     parts = module.split(".")
-    paths = (
-        "__".join(part.encode().hex().upper() for part in parts[:end])
-        for end in range(1, len(parts) + 1)
-    )
-    global_names = (f"{prefix}_VERBOSE", f"{prefix}_DEBUG", f"{prefix}_SILENT")
-    module_names = tuple(
-        (
-            f"{prefix}_MODULE__{path}_VERBOSE",
-            f"{prefix}_MODULE__{path}_DEBUG",
-            f"{prefix}_MODULE__{path}_SILENT",
+    scopes: list[tuple[str | None, tuple[str, str, str]]] = [
+        (None, (f"{prefix}_VERBOSE", f"{prefix}_DEBUG", f"{prefix}_SILENT"))
+    ]
+    for end in range(1, len(parts) + 1):
+        path = "__".join(part.encode().hex().upper() for part in parts[:end])
+        scopes.append(
+            (
+                ".".join(parts[:end]),
+                (
+                    f"{prefix}_MODULE__{path}_VERBOSE",
+                    f"{prefix}_MODULE__{path}_DEBUG",
+                    f"{prefix}_MODULE__{path}_SILENT",
+                ),
+            )
         )
-        for path in paths
-    )
-    return (global_names, *module_names)
+    return tuple(scopes)
 
 
 def environment_names(module: str, *, prefix: str = "LOGALOG") -> dict[str, str]:
@@ -147,7 +156,7 @@ def environment_names(module: str, *, prefix: str = "LOGALOG") -> dict[str, str]
         Uppercase application prefix.
     """
     _validate(module, prefix)
-    exact = _control_names(module, prefix)[-1]
+    exact = _control_names(module, prefix)[-1][1]
     return {
         f"global_{control}": f"{prefix}_{control.upper()}"
         for control in ("verbose", "debug", "silent")
@@ -174,30 +183,31 @@ def _boolean(name: str, value: str) -> bool:
     raise ConfigurationError(f"Invalid Boolean value for {name}")
 
 
-def _controls(
-    module: str,
-    prefix: str,
+def _control(
+    scopes: tuple[tuple[str | None, tuple[str, str, str]], ...],
+    index: int,
     defaults: tuple[bool, bool, bool],
     module_defaults: dict[str, tuple[bool | None, bool | None, bool | None]],
-) -> tuple[bool, bool, bool]:
-    """Read and resolve all live controls for one call."""
-    values = [defaults[0], defaults[1], False]
-    module_parts = module.split(".")
-    for scope_index, scope in enumerate(_control_names(module, prefix)):
-        stored = (
-            defaults
-            if scope_index == 0
-            else module_defaults.get(".".join(module_parts[:scope_index]), (None, None, None))
-        )
-        for index, name in enumerate(scope):
-            raw = environ.get(name)
-            enabled = _boolean(name, raw) if raw is not None else stored[index]
-            if enabled is not None:
-                if index == 2:
-                    values[index] |= enabled
-                else:
-                    values[index] = enabled
-    return cast(tuple[bool, bool, bool], tuple(values))
+) -> bool:
+    """Resolve one live control from the global scope to the exact module.
+
+    A live value replaces the stored value at the same scope. The nearest scope
+    decides verbose and debug. Silence from any scope applies.
+    """
+    enabled = False
+    for scope, names in scopes:
+        raw = environ.get(names[index])
+        if raw is not None:
+            value = _boolean(names[index], raw)
+        elif scope is None:
+            value = defaults[index]
+        else:
+            value = module_defaults.get(scope, _INHERIT)[index]
+        if value is not None:
+            if index == _SILENT and value:
+                return True
+            enabled = value
+    return enabled
 
 
 def _file_path(destination: FileDestination) -> str:
@@ -588,14 +598,12 @@ class Logger:
         finally:
             del frame
 
-        verbose, debug, silent = _controls(
-            module, self._prefix, self._control_defaults, self._module_defaults
-        )
+        scopes = _control_names(module, self._prefix)
+        category = _CATEGORY.get(level)
+        defaults, module_defaults = self._control_defaults, self._module_defaults
         if (
-            silent
-            or (level == "VERBOSE" and not verbose)
-            or (level in {"DEBUG", "TRACE"} and not debug)
-        ):
+            category is not None and not _control(scopes, category, defaults, module_defaults)
+        ) or _control(scopes, _SILENT, defaults, module_defaults):
             if self._closed:
                 raise RuntimeError("Logger is shut down")
             return

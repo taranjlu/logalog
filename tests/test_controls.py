@@ -129,12 +129,13 @@ def test_global_silence_is_live_for_every_level(
 
 @pytest.mark.parametrize("value", ["", "2", "enabled", "truth"])
 def test_malformed_values_raise_before_backend(monkeypatch: pytest.MonkeyPatch, value: str) -> None:
-    """Reject malformed applicable values with their variable name."""
+    """Reject malformed values that the call reads, with their variable name."""
     log = Logger()
     monkeypatch.setenv("LOGALOG_VERBOSE", value)
     with pytest.raises(ConfigurationError, match="LOGALOG_VERBOSE"):
-        log.info("not-queued")
+        log.verbose("not-queued")
     assert log._backend is None
+    log.info("verbose-control-not-read")
     log.shutdown()
 
 
@@ -253,6 +254,6 @@ def test_invalid_environment_value_is_not_disclosed(monkeypatch: pytest.MonkeyPa
     log = Logger()
     monkeypatch.setenv("LOGALOG_DEBUG", "private-value-marker")
     with pytest.raises(ConfigurationError, match="LOGALOG_DEBUG") as error:
-        log.info("not-emitted")
+        log.debug("not-emitted")
     assert "private-value-marker" not in str(error.value)
     log.shutdown()

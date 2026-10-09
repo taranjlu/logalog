@@ -232,8 +232,10 @@ verbose values. A child cannot cancel inherited silence. Module name parts use
 uppercase UTF-8 hex, which keeps case and underscores distinct.
 
 Accepted Boolean values are `1`, `true`, `yes`, and `on`, or `0`, `false`, `no`,
-and `off`. Case and outer whitespace do not matter. An invalid applicable value
-raises `ConfigurationError` before queue submission.
+and `off`. Case and outer whitespace do not matter. Each call reads only the controls
+that can suppress it: silence, and also verbose or debug for those levels. It stops at
+the first control that suppresses it. An invalid value that a call reads raises
+`ConfigurationError` before queue submission.
 
 The library has typed interfaces for Ty and other static type checkers. It does not
 check every argument at run time. Explicit checks protect redaction inputs, file
@@ -290,7 +292,7 @@ Use `just lint` for local static checks. `just security` needs network access
 for its audit of locked runtime dependencies. Development tools are not runtime dependencies.
 
 Complexipy compares functions against `complexipy-snapshot.json` and a threshold of 15.
-The baseline records existing complexity in `command`, `_controls`, and `_emit`.
+The baseline records existing complexity in `command` and `_deliver`.
 Review those functions before replacing the baseline with `uv run complexipy --snapshot-create`.
 Do not update it only to make a check pass. Vulture checks source and tests at 90% confidence.
 Bandit reports findings with at least medium severity and medium confidence.

@@ -22,7 +22,7 @@ Log output goes to the null device, so terminal speed does not change the result
   A suppressed `debug` call uses the default controls. An emitted `info` call renders with Rich.
 - The thread values use 8 threads with 250 `info` calls each, then `flush()`.
 
-The host is Linux with 12 CPUs and Python 3.14.6. Background load changes small values by about 5%.
+The host is Linux with 12 CPUs and Python 3.14.6. Background load changes values by up to about 10% between runs.
 
 ## Targets
 
@@ -113,3 +113,27 @@ The "Before" column is a new run of the round 2 code with these rows.
 
 A one-record hook process is about 5 ms faster. It also no longer starts the writer
 thread or the `multiprocessing` resource tracker process. Other values do not change.
+
+## Round 4: read only the controls that decide a call
+
+Change: each call reads only the controls that can suppress it. A `debug` or `trace` call
+reads the debug control first. It stops there when debug output is off. Silence is read
+only for records that the category controls accept. The control names and their
+stored-default keys are cached per module.
+
+A profile of the round 3 code showed that control resolution took 3.05 µs of the 3.5 µs
+suppressed call. Each `os.environ.get` took about 0.34 µs, and each call read six names.
+
+| Measurement | Before | After |
+| --- | ---: | ---: |
+| import logalog (ms) | 15.0 | 13.5 |
+| hook process with one record (ms) | 108.2 | 94.2 |
+| first call, default delivery (ms) | 62.4 | 56.0 |
+| suppressed debug call (µs) | 3.5 | 1.4 |
+| emitted info call (µs) | 240.7 | 233.0 |
+| 8 threads, synchronous (records/s) | 2,529 | 3,038 |
+| 8 threads, queued (records/s) | 2,560 | 2,772 |
+
+The suppressed debug call is now 1.4 µs. This change does not touch import or backend
+setup, so the lower import, hook, and first-call values in this run show run-to-run
+variation of about 10%. An invalid verbose or debug value now raises only when a call reads it.
