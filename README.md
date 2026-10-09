@@ -210,7 +210,13 @@ without the argument values. Quoting does not escape embedded newlines.
 Do not treat command display as a sanitizer for untrusted terminal text.
 
 String arguments use Loguru format syntax. Strings stay literal when no arguments are
-present. Named arguments also remain in the Loguru record.
+present. Named arguments also remain in the Loguru record. If the text cannot format with
+the arguments, for example because it contains braces, the call logs the literal text
+with the fields. Message content never makes a log call raise.
+
+Do not build a template from untrusted text, such as an f-string with request data,
+when you also pass fields. Format syntax such as `{request_id.__class__}` can read
+attributes of a field value. Pass untrusted data as a field instead.
 
 Queued fields must support Python pickle serialization. Serialization failures raise in the calling thread.
 With a JSON destination, fields that JSON cannot encode, such as circular data, raise `ValueError`.

@@ -155,14 +155,17 @@ def test_exception_outside_handler(log: Logger, capsys: pytest.CaptureFixture[st
     assert "Traceback" not in output
 
 
-def test_bad_format_does_not_write_partial_message(
-    log: Logger, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """Keep format errors visible to the caller without partial output."""
-    with pytest.raises(KeyError, match="missing"):
-        log.info("{missing}", present="value")
+def test_braces_in_message_content_never_raise(log: Logger) -> None:
+    """Log literal text with its fields when the content cannot format."""
+    records: list[Message] = []
+    log._get_backend().add(records.append, format="{message}")
+    data = '{"items": [1, 2]} {missing} {0} {'
+    request_id = "request-17"
 
-    assert capsys.readouterr() == ("", "")
+    log.info(f"payload {data}", request_id=request_id)
+
+    assert records[0].record["message"] == f"payload {data}"
+    assert records[0].record["extra"] == {"request_id": request_id}
 
 
 def test_console_follows_stderr_redirection(log: Logger) -> None:

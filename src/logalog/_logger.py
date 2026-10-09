@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Callable, Iterable, Sequence
+from contextlib import suppress
 from contextvars import ContextVar, Token
 from dataclasses import replace
 from functools import cache, partial, wraps
@@ -726,7 +727,9 @@ class Logger:
     ) -> None:
         """Format, render, and submit one accepted event."""
         if isinstance(message, str) and (args or fields):
-            message = message.format(*args, **fields)
+            # Message content must not make a log call fail. Keep the literal text.
+            with suppress(Exception):
+                message = message.format(*args, **fields)
             args = ()
         sections = self._sections.get()
         indentation = "  " * (len(sections) - 1) if sections else ""
