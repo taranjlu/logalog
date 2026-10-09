@@ -30,7 +30,7 @@ def log() -> Iterator[Logger]:
 @pytest.mark.parametrize(
     ("method", "controlled"),
     [
-        ("trace", False),
+        ("trace", True),
         ("debug", True),
         ("verbose", True),
         ("info", False),
@@ -49,7 +49,9 @@ def test_levels_write_once_to_stderr(
 ) -> None:
     """Write every supported severity once without using stdout."""
     if controlled:
-        monkeypatch.setenv(f"LOGALOG_{method.upper()}", "1")
+        # The debug control also enables trace output.
+        control = "DEBUG" if method == "trace" else method.upper()
+        monkeypatch.setenv(f"LOGALOG_{control}", "1")
     getattr(log, method)("message-marker")
 
     captured = capsys.readouterr()

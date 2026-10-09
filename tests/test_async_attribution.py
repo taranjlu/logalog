@@ -64,6 +64,7 @@ async def test_async_source_and_live_controls(
     assert all(record["name"] == module for record in lifecycle)
     assert all(record["function"] == "_body" for record in lifecycle)
     assert all(record["file"]["path"] == __file__ for record in lifecycle)
+    assert all(record["module"] == "test_async_attribution" for record in lifecycle)
     assert all(record["line"] == _body.__code__.co_firstlineno for record in lifecycle)
     bodies = [record for record in records if record["message"] == "body event"]
     assert len(bodies) == 3

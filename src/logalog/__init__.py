@@ -20,7 +20,7 @@ __all__ = [
 ]
 
 LOG = _Logger()
-register(LOG.shutdown)
+register(LOG._close_at_exit)
 
 
 @beartype
@@ -31,6 +31,12 @@ def initialize_worker(owner: _Logger) -> None:
     ----------
     owner : Logger
         The parent process logger passed through a process initializer.
+
+    Raises
+    ------
+    ValueError
+        If the owner has no initialized queue.
+    RuntimeError
+        If this process's logger is already initialized.
     """
-    if LOG is not owner:
-        LOG._use_worker_backend(owner)
+    LOG._use_worker_backend(owner)

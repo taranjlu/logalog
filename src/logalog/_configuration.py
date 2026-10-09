@@ -53,6 +53,15 @@ _UniqueSafeLoader.add_constructor(
     BaseResolver.DEFAULT_MAPPING_TAG,
     _mapping,
 )
+# Use YAML 1.2 Booleans. YAML 1.1 also reads values such as on, off, yes, and no as Booleans.
+_BOOL_TAG = "tag:yaml.org,2002:bool"
+_UniqueSafeLoader.yaml_implicit_resolvers = {
+    first: [(tag, pattern) for tag, pattern in resolvers if tag != _BOOL_TAG]
+    for first, resolvers in yaml.SafeLoader.yaml_implicit_resolvers.items()
+}
+_UniqueSafeLoader.add_implicit_resolver(
+    _BOOL_TAG, re.compile(r"^(?:true|True|TRUE|false|False|FALSE)$"), list("tTfF")
+)
 
 
 @beartype
@@ -78,10 +87,25 @@ class Configuration:
 @beartype
 def _module_name(entry: tuple[str, tuple[bool | None, bool | None, bool | None]]) -> str:
     """Check a complete module entry without sampled outer-container validation."""
-    module = entry[0]
+    check_module(entry[0])
+    return entry[0]
+
+
+def check_module(module: str) -> None:
+    """Reject a module name that cannot form an inheritance path.
+
+    Parameters
+    ----------
+    module : str
+        Full dotted module name.
+
+    Raises
+    ------
+    ConfigurationError
+        If the name or one of its parts is empty.
+    """
     if not module or any(not part for part in module.split(".")):
-        raise ConfigurationError("Module names must have nonempty parts")
-    return module
+        raise ConfigurationError("Module names must have nonempty dot-separated parts")
 
 
 @beartype
@@ -191,8 +215,10 @@ def _validate(data: Mapping[str, object], source: Path) -> Configuration:
     modules_data = _dict(data.get("modules", {}), source, "modules")
     modules = []
     for module, raw_controls in modules_data.items():
-        if not module or any(not part for part in module.split(".")):
-            raise ConfigurationError(f"{source}: module names must have nonempty parts")
+        try:
+            check_module(module)
+        except ConfigurationError as error:
+            raise ConfigurationError(f"{source}: {error}") from None
         controls = _dict(raw_controls, source, f"modules.{module}")
         _keys(controls, _CONTROL_KEYS, source, f"modules.{module}")
         modules.append(

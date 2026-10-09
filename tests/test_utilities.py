@@ -326,6 +326,8 @@ def test_command_windows_validation_and_runtime_types(
         log.command(["tool"], redact_indices=(True,))
     with pytest.raises((TypeError, BeartypeCallHintParamViolation)):
         log.command(["tool"], redact_values=(1,))  # ty: ignore[invalid-argument-type]
+    with pytest.raises(TypeError, match="not one string"):
+        log.command(["tool", "token-value"], redact_values="token-value")
     with pytest.raises(TypeError):
         cast(Any, Logger.command).__wrapped__(log, ["tool", 2])
     with pytest.raises(TypeError):

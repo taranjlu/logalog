@@ -208,16 +208,51 @@ if __name__ == "__main__":
         assert output.count(f"worker-{value}") == 1
 
 
-def test_queued_file_serialization_failure_keeps_later_writes(tmp_path: Path) -> None:
+def test_queued_file_serialization_failure_keeps_later_writes(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     """Reject an unsafe field before any destination receives the event."""
-    path = tmp_path / "queue.log"
-    log = Logger(files=(FileDestination(path),))
+    paths = (tmp_path / "queue.log", tmp_path / "queue.jsonl")
+    log = Logger(files=(FileDestination(paths[0]), FileDestination(paths[1], kind="json")))
     with pytest.raises((AttributeError, TypeError, pickle.PicklingError)):
         log.info("rejected", invalid=lambda: None)
+    circular: dict[str, object] = {}
+    circular["self"] = circular
+    with pytest.raises(ValueError, match="Circular"):
+        log.info("rejected", invalid=circular)
     log.info("accepted")
     log.shutdown()
-    assert "rejected" not in path.read_text()
-    assert path.read_text().count("accepted") == 1
+    for output in (capsys.readouterr().err, *(path.read_text() for path in paths)):
+        assert "rejected" not in output
+        assert "accepted" in output
+        assert len(output.splitlines()) == 1
+
+
+def test_close_failure_still_closes_later_destinations(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Close every destination and report the first close failure."""
+    from loguru._file_sink import FileSink
+
+    stopped = []
+    original_stop = FileSink.stop
+
+    def stop(sink: FileSink) -> None:
+        stopped.append(Path(sink._path))
+        original_stop(sink)
+        if sink._path.endswith("first.log"):
+            raise OSError("close-failure-marker")
+
+    monkeypatch.setattr(FileSink, "stop", stop)
+    paths = [tmp_path / "first.log", tmp_path / "second.log"]
+    log = Logger(files=tuple(FileDestination(path) for path in paths))
+    log.info("closing")
+    with pytest.raises(OSError, match="close-failure-marker"):
+        log.shutdown()
+    assert stopped == paths
+    assert not [thread for thread in threads() if thread.name.startswith("loguru-writer")]
+    with pytest.raises(RuntimeError, match="shut down"):
+        log.info("after-failure")
 
 
 @pytest.mark.parametrize("synchronous", [False, True])

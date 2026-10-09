@@ -75,19 +75,24 @@ def test_queued_threads_deliver_each_record_once(
 
 
 def test_worker_initialization_rejects_invalid_owners() -> None:
-    """Reject synchronous and repeated worker initialization."""
+    """Reject synchronous, uninitialized, and repeated worker initialization."""
     worker = Logger()
+    synchronous = Logger(synchronous=True)
+    synchronous.initialize()
     with pytest.raises(ValueError, match="queued delivery"):
-        worker._use_worker_backend(Logger(synchronous=True))
+        worker._use_worker_backend(synchronous)
+    synchronous.shutdown()
 
     owner = Logger()
+    with pytest.raises(ValueError, match="initialized owner"):
+        initialize_worker(owner)
+    owner.initialize()
     worker._use_worker_backend(owner)
+    owner._use_worker_backend(owner)
     with pytest.raises(RuntimeError, match="already initialized"):
         worker._use_worker_backend(owner)
     worker.shutdown()
     owner.shutdown()
-
-    initialize_worker(__import__("logalog").LOG)
 
     with pytest.raises(ValueError, match="queued delivery"):
         pickle.dumps(Logger(synchronous=True))
@@ -200,20 +205,105 @@ if __name__ == "__main__":
 
 
 @pytest.mark.parametrize("failed_exit", [False, True])
-def test_normal_interpreter_exit_flushes_shared_logger(failed_exit: bool) -> None:
-    """Flush the shared queue at normal exit, including an unhandled exception."""
-    script = "from logalog import LOG; LOG.info('exit-marker')"
+def test_normal_interpreter_exit_flushes_shared_logger(tmp_path: Path, failed_exit: bool) -> None:
+    """Flush at exit and still accept records from earlier exit handlers."""
+    script = """
+import atexit, sys
+
+def late():
+    from logalog import LOG
+    LOG.info("late-exit-marker")
+
+atexit.register(late)
+from logalog import LOG, FileDestination
+LOG.configure(files=(FileDestination(sys.argv[1]),))
+LOG.info("main-exit-marker")
+"""
     if failed_exit:
-        script += "\nraise RuntimeError('exit-failure')"
+        script += "raise RuntimeError('exit-failure')\n"
+    path = tmp_path / "exit.log"
     result = subprocess.run(  # noqa: S603 -- Fixed test script without a shell.
-        [sys.executable, "-I", "-c", script],
+        [sys.executable, "-I", "-c", script, str(path)],
         capture_output=True,
         text=True,
         timeout=10,
     )
     assert result.returncode == int(failed_exit)
     assert result.stdout == ""
-    assert result.stderr.count("exit-marker") == 1
+    for output in (result.stderr, path.read_text()):
+        assert output.count("main-exit-marker") == 1
+        assert output.count("late-exit-marker") == 1
+
+
+def test_fork_during_accepted_call_does_not_block_child() -> None:
+    """Give a forked child a usable logger while a parent thread logs."""
+    script = r"""
+import os, signal, threading
+from logalog._logger import Logger
+
+log = Logger(synchronous=True)
+formatting, release = threading.Event(), threading.Event()
+
+class Paused:
+    def __format__(self, spec):
+        formatting.set()
+        release.wait(5)
+        return "parent-event"
+
+thread = threading.Thread(target=log.info, args=("{}", Paused()))
+thread.start()
+formatting.wait(5)
+pid = os.fork()
+if pid == 0:
+    signal.alarm(5)
+    log.info("child-event")
+    log.shutdown()
+    os._exit(0)
+release.set()
+thread.join()
+_, status = os.waitpid(pid, 0)
+assert os.waitstatus_to_exitcode(status) == 0, status
+log.shutdown()
+"""
+    result = subprocess.run(  # noqa: S603 -- Fixed test script without a shell.
+        [sys.executable, "-W", "ignore::DeprecationWarning", "-c", script],
+        capture_output=True,
+        text=True,
+        timeout=20,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stderr.count("child-event") == 1
+    assert result.stderr.count("parent-event") == 1
+
+
+def test_forked_worker_rejects_synchronous_owner() -> None:
+    """Keep one writer when a synchronous owner forks a worker."""
+    script = r"""
+import multiprocessing as mp
+from logalog import LOG, initialize_worker
+
+def work(owner):
+    try:
+        initialize_worker(owner)
+    except ValueError:
+        return
+    raise SystemExit(1)
+
+if __name__ == "__main__":
+    LOG.configure(synchronous=True)
+    LOG.initialize()
+    process = mp.get_context("fork").Process(target=work, args=(LOG,))
+    process.start()
+    process.join(10)
+    assert process.exitcode == 0, process.exitcode
+"""
+    result = subprocess.run(  # noqa: S603 -- Fixed test script without a shell.
+        [sys.executable, "-c", script],
+        capture_output=True,
+        text=True,
+        timeout=20,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 def test_shutdown_waits_for_active_emission(capsys: pytest.CaptureFixture[str]) -> None:
@@ -231,10 +321,12 @@ def test_shutdown_waits_for_active_emission(capsys: pytest.CaptureFixture[str]) 
         shutting_down.set()
         log.shutdown()
 
-    with ThreadPoolExecutor(max_workers=2) as executor:
+    with ThreadPoolExecutor(max_workers=3) as executor:
         emission = executor.submit(log.info, "{}", PausedValue())
         try:
             assert formatting.wait(5)
+            # A slow call does not block other threads.
+            executor.submit(log.info, "concurrent-event").result(timeout=5)
             closing = executor.submit(shutdown)
             assert shutting_down.wait(5)
             with pytest.raises(TimeoutError):
@@ -243,7 +335,9 @@ def test_shutdown_waits_for_active_emission(capsys: pytest.CaptureFixture[str]) 
             release.set()
         emission.result(timeout=5)
         closing.result(timeout=5)
-    assert capsys.readouterr().err.count("accepted-event") == 1
+    output = capsys.readouterr().err
+    assert output.count("accepted-event") == 1
+    assert output.count("concurrent-event") == 1
 
 
 def test_queued_exception_without_active_error(capsys: pytest.CaptureFixture[str]) -> None:

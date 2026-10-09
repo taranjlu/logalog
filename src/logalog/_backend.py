@@ -1,17 +1,18 @@
 """Isolate the Loguru compatibility boundary and Rich output."""
 
 from collections.abc import Mapping, Sequence
+from contextlib import suppress
 from dataclasses import dataclass
 from functools import partial
 from logging import LogRecord
 from os import PathLike
 from traceback import TracebackException
+from types import TracebackType
 from typing import TYPE_CHECKING, Literal, cast
 
 from beartype import beartype
 from loguru._logger import Core, Logger
 from loguru._recattrs import RecordException
-from loguru._simple_sinks import StandardSink
 from rich.console import Console, ConsoleRenderable, Group
 from rich.logging import RichHandler
 from rich.text import Text
@@ -114,30 +115,82 @@ def _prepare_console(record: dict[str, object], *, enqueue: bool) -> None:
         ).rstrip()
 
 
-class _ConsoleSink(StandardSink):
-    """Present a destination-local copy through Loguru's existing logging adapter."""
+class _ConsoleSink:
+    """Present a destination-local copy of each event through the Rich handler."""
 
     def __init__(self, handler: _SnapshotHandler, enqueue: bool) -> None:
-        super().__init__(handler)
+        self._handler = handler
         self._enqueue = enqueue
 
     def write(self, message: "Message") -> None:
-        record = message.record.copy()
-        record["extra"] = dict(record["extra"])
-        presentation = cast(dict[str, object], record)
+        """Convert one Loguru event to a standard record with its original metadata."""
+        source = message.record
+        presentation = cast(dict[str, object], source)
         snapshot = presentation.get(_RICH_SNAPSHOT)
-        text = record["message"]
+        text = source["message"]
+        exception = source["exception"]
         if self._enqueue and (traceback := presentation.get(_CONSOLE_TRACEBACK)):
             text = f"{text}\n{traceback}"
             if isinstance(snapshot, Text):
                 snapshot = snapshot.copy()
                 snapshot.append(f"\n{traceback}")
-            record["exception"] = None
+            exception = None
+        extra = dict(source["extra"])
         if isinstance(snapshot, Text):
-            record["extra"][_RICH_SNAPSHOT] = snapshot
-        display = type(message)(text)
-        display.record = record
-        super().write(display)
+            extra[_RICH_SNAPSHOT] = snapshot
+        record = LogRecord(
+            source["name"] or "",
+            source["level"].no,
+            source["file"].path,
+            source["line"],
+            text,
+            (),
+            cast(
+                tuple[type[BaseException], BaseException, TracebackType | None] | None,
+                (exception.type, exception.value, exception.traceback) if exception else None,
+            ),
+            source["function"],
+        )
+        record.extra = extra
+        if exception:
+            record.exc_text = "\n"
+        record.levelname = source["level"].name
+        # Show event time and the producer, not delivery time and the writer thread.
+        record.created = source["time"].timestamp()
+        record.msecs = source["time"].microsecond // 1000
+        record.thread = source["thread"].id
+        record.threadName = source["thread"].name
+        record.process = source["process"].id
+        record.processName = source["process"].name
+        self._handler.handle(record)
+
+    def stop(self) -> None:
+        """Close the Rich handler."""
+        self._handler.close()
+
+
+def close_backend(backend: Logger) -> None:
+    """Remove every handler, then raise the first close failure.
+
+    Parameters
+    ----------
+    backend : Logger
+        Private Loguru logger to close.
+
+    Raises
+    ------
+    Exception
+        The first failure that a handler raised while it closed.
+    """
+    failure: Exception | None = None
+    for handler_id in list(backend._core.handlers):
+        try:
+            backend.remove(handler_id)
+        except Exception as error:
+            # Close later handlers before the first failure propagates.
+            failure = failure or error
+    if failure is not None:
+        raise failure
 
 
 @beartype
@@ -217,6 +270,7 @@ def create_backend(*, enqueue: bool = True, files: Sequence[FileDestination] = (
                 buffering=destination.buffering,
             )
     except BaseException:
-        backend.remove()
+        with suppress(Exception):
+            close_backend(backend)
         raise
     return backend

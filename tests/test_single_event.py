@@ -1,12 +1,15 @@
 """Probe one logical event across console, observers, and native file sinks."""
 
 import json
+from logging import LogRecord
 from pathlib import Path
+from threading import Thread
 
 import pytest
 from rich.text import Text
 
 from logalog import FileDestination
+from logalog._backend import _SnapshotHandler
 from logalog._logger import Logger
 
 
@@ -55,3 +58,18 @@ def test_one_event_keeps_original_metadata(
         )
         files.append(record)
     assert files[0] == files[1]
+
+
+def test_console_keeps_event_time_and_producer_thread(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Show the producer's time and thread, not the queue writer's."""
+    records: list[LogRecord] = []
+    monkeypatch.setattr(_SnapshotHandler, "emit", lambda _, record: records.append(record))
+    log = Logger()
+    observed = []
+    log._get_backend().add(observed.append, format="{message}")
+    producer = Thread(target=log.info, args=("timed-event",), name="producer-thread")
+    producer.start()
+    producer.join()
+    log.shutdown()
+    assert records[0].threadName == "producer-thread"
+    assert records[0].created == observed[0].record["time"].timestamp()

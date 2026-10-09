@@ -52,8 +52,10 @@ render their content.
 
 Call `LOG.configure(synchronous=True)` before the first log call to write in the
 calling thread. Use `LOG.configure(prefix="MY_APP")` to replace the default
-`LOGALOG` environment prefix. Call `LOG.flush()` to wait for queued records. Call
-`LOG.shutdown()` after workers stop to flush records and close the owner handler.
+`LOGALOG` environment prefix. Call `LOG.flush()` to wait for queued records.
+Flush does not flush file buffers. Files with `buffering=1`, the default, write each line.
+Call `LOG.shutdown()` after workers stop to flush records and close the owner handlers.
+Shutdown closes every destination, then raises the first close failure.
 
 Configure files before the first log call. Each destination uses Loguru's native file
 management. The default rotates at 10 MB and retains five archives.
@@ -96,6 +98,8 @@ For `pyproject.toml`, quote dotted module names: `[tool.logalog.modules."myapp.w
 The loader does not search for files or read command-line options. It does not load
 environment variables, `.env` files, interpolation, or executable settings. YAML uses
 a private subclass of PyYAML's safe loader. Configurator merges the parsed mappings.
+YAML Booleans follow YAML 1.2: only `true` and `false`, in lowercase, title case, or uppercase.
+Values such as `on` and `yes` stay strings.
 
 The loader rejects XML and YAML merge keys. Unknown keys, duplicate keys, and incorrect
 types raise `ConfigurationError`. Each source must pass validation, even if a later file replaces its settings.
@@ -113,16 +117,22 @@ and `record` fields. Both formats retain exception details without local variabl
 Initial setup failures close earlier sinks, but can leave empty files.
 
 Shutdown is final. Later log calls raise `RuntimeError`.
-The shared logger also flushes at normal interpreter exit, including an unhandled exception.
+The shared logger also flushes and closes at normal interpreter exit, including an unhandled exception.
+Exit handlers that you register before `import logalog` run after that step. Their records
+use synchronous delivery. The owner process appends them to its files.
 
 For multiprocessing, set the process start method first. Then call
 `LOG.initialize()` in the owner before processes start. Serialization also initializes an unused logger.
 Pass `LOG` to each worker
 and call `initialize_worker(owner)` before the worker logs. Each worker must call
 `LOG.flush()` before it exits. Forced process termination can lose queued records.
+`initialize_worker` raises `ValueError` unless the owner has an initialized queue.
+This check also applies to `fork`, where the worker inherits the owner object.
+A worker flush waits for the owner writer. Do not flush after the owner stops.
 
 Keep the owner alive until all workers finish.
 For `fork`, start workers before application threads. Loguru manages its own queue-thread locks across fork.
+A forked child gets a new logalog lock, so a parent thread that logs during `fork` cannot block it.
 The Linux tests cover `fork`, `spawn`, and `forkserver`.
 
 Use `trace`, `debug`, `verbose`, `info`, `success`, `warning`, `error`, or `critical`
@@ -164,6 +174,7 @@ Windows platform quoting convention. The display is not universal shell syntax. 
 never executes the command or changes directories.
 
 Redaction uses only the argument indices and exact values that you give it.
+Give `redact_values` as a collection, such as a tuple. One string raises `TypeError`.
 Use `redact_values` to hide an exact `cwd` value. An invalid redaction index stops
 the call before logging. The `command` and `cwd` record fields contain the display values.
 
@@ -175,20 +186,28 @@ String arguments use Loguru format syntax. Strings stay literal when no argument
 present. Named arguments also remain in the Loguru record.
 
 Queued fields must support Python pickle serialization. Serialization failures raise in the calling thread.
+With a JSON destination, fields that JSON cannot encode, such as circular data, raise `ValueError`.
+In both cases, no destination receives the event.
 Queued sink failures use Loguru error output and do not raise in the calling thread.
 Flush waits for delivery attempts. It does not guarantee that a failed destination received the records.
+
+The logger lock covers only call acceptance and backend setup. Formatting and Rich rendering
+run in parallel in each calling thread. Loguru writes each record under its own handler lock.
+A blocked stderr or a full queue pipe can therefore block calling threads, including an
+asynchronous event loop thread. Flush and shutdown have no timeout.
+The console shows the event time and the thread that made the call, also for queued records.
 
 Rich treats message text as literal text, not markup.
 Queued tracebacks use plain traceback text inside the Rich message. Synchronous tracebacks retain Rich formatting.
 Tracebacks exclude local variable values, but exception messages and source lines can still contain sensitive data.
 
-Import produces no output and starts no worker thread.
+Import produces no output and starts no worker thread. It registers one exit handler for the shared logger.
 The first emitted record creates one reusable stderr console.
 The library does not create a stdout console or change application logging handlers.
 Keep stdout available for application data, command results, and machine-readable output.
 
 Debug and verbose output are off by default. Set `LOGALOG_DEBUG=1` or
-`LOGALOG_VERBOSE=1` to enable each category independently. Set
+`LOGALOG_VERBOSE=1` to enable each category independently. The debug control also enables trace output. Set
 `LOGALOG_SILENT=1` to suppress all output. Each call reads current values from
 `os.environ`. Changes apply in the calling process, before queue submission.
 

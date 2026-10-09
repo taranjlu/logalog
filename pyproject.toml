@@ -59,7 +59,7 @@ min_confidence = 90
 [tool.coverage.run]
 source = ["logalog"]
 branch = true
-patch = ["subprocess"]
+patch = ["subprocess", "_exit"]
 
 [tool.coverage.report]
 fail_under = 100

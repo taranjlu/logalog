@@ -1,27 +1,30 @@
 """Provide the typed core logging interface."""
 
+import json
 import re
 from collections.abc import Callable, Iterable, Sequence
 from contextvars import ContextVar, Token
+from dataclasses import replace
 from functools import cache, partial, wraps
 from inspect import currentframe, isasyncgenfunction, iscoroutinefunction, isgeneratorfunction
-from os import PathLike, environ, fspath, getpid
+from os import PathLike, environ, fspath, getpid, register_at_fork
 from os import name as os_name
-from os.path import basename, normcase, realpath
+from os.path import basename, normcase, realpath, splitext
 from shlex import join as shell_join
 from subprocess import list2cmdline
-from threading import RLock
+from threading import Condition
 from time import monotonic
 from types import FunctionType, TracebackType
 from typing import Literal, NamedTuple, ParamSpec, TypeVar, cast, overload
+from weakref import WeakSet
 
 from beartype import beartype
 from loguru._logger import Logger as LoguruLogger
 from rich.console import Console, RenderableType
 from rich.text import Text
 
-from ._backend import _RICH_SNAPSHOT, FileDestination, create_backend
-from ._configuration import Configuration, ConfigurationError
+from ._backend import _RICH_SNAPSHOT, FileDestination, close_backend, create_backend
+from ._configuration import Configuration, ConfigurationError, check_module
 
 Level = Literal["TRACE", "DEBUG", "VERBOSE", "INFO", "SUCCESS", "WARNING", "ERROR", "CRITICAL"]
 Control = Literal["verbose", "debug", "silent"]
@@ -32,6 +35,7 @@ _PREFIX = re.compile(r"[A-Z][A-Z0-9_]*\Z")
 _TRUE = frozenset({"1", "true", "yes", "on"})
 _FALSE = frozenset({"0", "false", "no", "off"})
 _REDACTED = "[REDACTED]"
+_LOGGERS: "WeakSet[Logger]" = WeakSet()
 
 
 class _Source(NamedTuple):
@@ -152,8 +156,7 @@ def environment_names(module: str, *, prefix: str = "LOGALOG") -> dict[str, str]
 @beartype
 def _validate(module: str, prefix: str) -> None:
     """Validate values that form environment variable names."""
-    if not module or any(not part for part in module.split(".")):
-        raise ValueError("Module must contain nonempty dot-separated parts")
+    check_module(module)
     if _PREFIX.fullmatch(prefix) is None:
         raise ValueError("Prefix must contain uppercase ASCII letters, digits, or underscores")
 
@@ -228,7 +231,8 @@ class Logger:
         _validate("module", prefix)
         _validate_files(files)
         self._backend: LoguruLogger | None = None
-        self._lock = RLock()
+        self._lock = Condition()
+        self._active = 0
         self._synchronous = synchronous
         self._prefix = prefix
         self._files = files
@@ -240,11 +244,23 @@ class Logger:
         self._sections: ContextVar[tuple[str, ...]] = ContextVar(
             f"logalog_sections_{id(self)}", default=()
         )
+        _LOGGERS.add(self)
 
-    def _get_backend(self) -> LoguruLogger:
-        """Initialize the backend once, including during concurrent first use."""
+    def _reset_after_fork(self) -> None:
+        """Give a forked child an unlocked lock and no inherited active calls."""
+        self._lock = Condition()
+        self._active = 0
+
+    def _get_backend(self, *, accepted: bool = False) -> LoguruLogger:
+        """Initialize the backend once, including during concurrent first use.
+
+        Parameters
+        ----------
+        accepted : bool, default=False
+            Permit a call that was accepted before shutdown started.
+        """
         with self._lock:
-            if self._closed:
+            if self._closed and not accepted:
                 raise RuntimeError("Logger is shut down")
             if self._backend is None:
                 self._backend = create_backend(enqueue=not self._synchronous, files=self._files)
@@ -307,7 +323,6 @@ class Logger:
     def __setstate__(self, state: dict[str, object]) -> None:
         """Restore a queued logger without creating a worker thread."""
         self._backend = cast(LoguruLogger, state["backend"])
-        self._lock = RLock()
         self._synchronous = False
         self._prefix = cast(str, state["prefix"])
         self._files = ()
@@ -319,32 +334,70 @@ class Logger:
         self._closed = False
         self._renderer = None
         self._sections = ContextVar(f"logalog_sections_{id(self)}", default=())
+        self._lock = Condition()
+        self._active = 0
+        _LOGGERS.add(self)
 
     def flush(self) -> None:
-        """Wait until Loguru delivers all queued records."""
+        """Wait until the queue delivers all accepted records.
+
+        File objects keep their configured buffering. Shutdown closes and flushes them.
+        """
         with self._lock:
-            if self._backend is not None and not self._closed:
-                self._backend.complete()
+            backend = None if self._closed else self._backend
+        if backend is not None:
+            backend.complete()
 
     def shutdown(self) -> None:
-        """Flush queued records and close the owner process handler."""
+        """Finish accepted calls, flush queued records, and close the owner handlers.
+
+        Raises
+        ------
+        Exception
+            The first failure from a handler that closed. All handlers still close.
+        """
         with self._lock:
             if self._closed:
                 return
-            if self._backend is not None:
-                self._backend.complete()
-                if self._owner_pid == getpid():
-                    self._backend.remove()
             self._closed = True
+            while self._active:
+                self._lock.wait()
+            backend = self._backend
+        if backend is not None:
+            backend.complete()
+            if self._owner_pid == getpid():
+                close_backend(backend)
+
+    def _close_at_exit(self) -> None:
+        """Flush and close at interpreter exit, then accept later exit records.
+
+        Exit handlers that ran before import can still log. Those records use
+        synchronous delivery. The owner reopens its files in append mode.
+        """
+        try:
+            self.shutdown()
+        finally:
+            with self._lock:
+                owner = self._owner_pid in {None, getpid()}
+                self._files = (
+                    tuple(replace(file, mode="a", delay=True) for file in self._files)
+                    if owner
+                    else ()
+                )
+                self._synchronous = True
+                self._backend = None
+                self._closed = False
 
     def _use_worker_backend(self, owner: "Logger") -> None:
-        """Use an owner's native Loguru queue in a spawned worker."""
+        """Use an owner's native Loguru queue in a worker process."""
+        if owner._synchronous or owner._backend is None:
+            raise ValueError("Worker logging requires an initialized owner with queued delivery")
+        if self is owner:
+            return
         with self._lock:
             if self._backend is not None or self._closed:
                 raise RuntimeError("Worker logger is already initialized")
-            if owner._synchronous:
-                raise ValueError("Worker logging requires queued delivery")
-            self._backend = owner._get_backend()
+            self._backend = owner._backend
             self._owner_pid = owner._owner_pid
             self._prefix = owner._prefix
             self._files = ()
@@ -448,6 +501,8 @@ class Logger:
             raise TypeError("Every redaction index must be an integer")
         if any(index < 0 or index >= len(arguments) for index in indices):
             raise IndexError("Command redaction index is out of range")
+        if isinstance(redact_values, str):
+            raise TypeError("Give redact_values as a collection of strings, not one string")
         values = tuple(redact_values)
         if any(not isinstance(value, str) for value in values):
             raise TypeError("Every redaction value must be a string")
@@ -482,85 +537,113 @@ class Logger:
         source: _Source | None = None,
     ) -> None:
         """Preserve the external caller through library and Beartype wrappers."""
+        frame = currentframe()
+        depth = 0
+        try:
+            while frame is not None and (
+                frame.f_globals.get("__name__", "").startswith("logalog.")
+                or frame.f_code.co_filename.startswith("<@beartype(logalog.")
+            ):
+                depth += 1
+                frame = frame.f_back
+            module = (
+                source.module
+                if source
+                else (
+                    cast(str, frame.f_globals.get("__name__", "__main__")) if frame else "__main__"
+                )
+            )
+        finally:
+            del frame
+
+        verbose, debug, silent = _controls(
+            module, self._prefix, self._control_defaults, self._module_defaults
+        )
+        if (
+            silent
+            or (level == "VERBOSE" and not verbose)
+            or (level in {"DEBUG", "TRACE"} and not debug)
+        ):
+            if self._closed:
+                raise RuntimeError("Logger is shut down")
+            return
+
+        # Count the accepted call so that shutdown waits for it without a held lock.
         with self._lock:
             if self._closed:
                 raise RuntimeError("Logger is shut down")
-            frame = currentframe()
-            depth = 0
-            try:
-                while frame is not None and (
-                    frame.f_globals.get("__name__", "").startswith("logalog.")
-                    or frame.f_code.co_filename.startswith("<@beartype(logalog.")
-                ):
-                    depth += 1
-                    frame = frame.f_back
-                module = (
-                    source.module
-                    if source
-                    else (
-                        cast(str, frame.f_globals.get("__name__", "__main__"))
-                        if frame
-                        else "__main__"
-                    )
-                )
-            finally:
-                del frame
+            self._active += 1
+        try:
+            # Skip the delivery frame and its Beartype wrapper.
+            self._deliver(level, message, args, fields, depth + 2, exception, source)
+        finally:
+            with self._lock:
+                self._active -= 1
+                if not self._active:
+                    self._lock.notify_all()
 
-            verbose, debug, silent = _controls(
-                module, self._prefix, self._control_defaults, self._module_defaults
-            )
-            if silent or (level == "VERBOSE" and not verbose) or (level == "DEBUG" and not debug):
-                return
+    def _deliver(
+        self,
+        level: Level,
+        message: RenderableType,
+        args: tuple[object, ...],
+        fields: dict[str, object],
+        depth: int,
+        exception: bool,
+        source: _Source | None,
+    ) -> None:
+        """Format, render, and submit one accepted event."""
+        if isinstance(message, str) and (args or fields):
+            message = message.format(*args, **fields)
+            args = ()
+        sections = self._sections.get()
+        indentation = "  " * (len(sections) - 1) if sections else ""
+        if sections:
+            fields |= {
+                "section_depth": len(sections),
+                "section": sections[-1],
+                "section_parent": sections[-2] if len(sections) > 1 else None,
+            }
+            if isinstance(message, str):
+                message = indentation + message.replace("\n", f"\n{indentation}")
+        if fields and any(destination.kind == "json" for destination in self._files):
+            # Reject fields that JSON cannot encode before any destination accepts the event.
+            json.dumps(fields, default=str)
 
-            if isinstance(message, str) and (args or fields):
-                message = message.format(*args, **fields)
-                args = ()
-            sections = self._sections.get()
+        if not isinstance(message, str):
+            if args:
+                raise ValueError("Rich renderables do not accept format arguments")
+            if self._renderer is None:
+                self._renderer = Console(stderr=True, markup=False, highlight=False)
+            options = self._renderer.options
             if sections:
-                fields |= {
-                    "section_depth": len(sections),
-                    "section": sections[-1],
-                    "section_parent": sections[-2] if len(sections) > 1 else None,
-                }
-                indentation = "  " * (len(sections) - 1)
-                if isinstance(message, str):
-                    message = indentation + message.replace("\n", f"\n{indentation}")
-
-            if not isinstance(message, str):
-                if args:
-                    raise ValueError("Rich renderables do not accept format arguments")
-                if self._renderer is None:
-                    self._renderer = Console(stderr=True, markup=False, highlight=False)
-                options = self._renderer.options
-                if sections:
-                    options = options.update_width(max(1, options.max_width - len(indentation)))
-                snapshot = Text.assemble(
-                    *(
-                        (segment.text, segment.style) if segment.style else segment.text
-                        for segment in self._renderer.render(message, options)
-                    )
+                options = options.update_width(max(1, options.max_width - len(indentation)))
+            snapshot = Text.assemble(
+                *(
+                    (segment.text, segment.style) if segment.style else segment.text
+                    for segment in self._renderer.render(message, options)
                 )
-                message = snapshot.plain.removesuffix("\n")
-                if sections:
-                    if snapshot.plain.endswith("\n"):
-                        snapshot = snapshot[:-1]
-                    indentation = "  " * (len(sections) - 1)
-                    snapshot = Text(indentation) + Text(f"\n{indentation}").join(
-                        snapshot.split(allow_blank=True)
-                    )
-                    message = snapshot.plain.removesuffix("\n")
-                fields[_RICH_SNAPSHOT] = snapshot
-            backend = self._get_backend()
-            if source is not None:
-                backend = backend.patch(
-                    lambda record: record.update(
-                        name=source.module,
-                        function=source.function,
-                        file=type(record["file"])(basename(source.path), source.path),
-                        line=source.line,
-                    )
+            )
+            if sections:
+                if snapshot.plain.endswith("\n"):
+                    snapshot = snapshot[:-1]
+                snapshot = Text(indentation) + Text(f"\n{indentation}").join(
+                    snapshot.split(allow_blank=True)
                 )
-            backend.bind(**fields).opt(depth=depth, exception=exception).log(level, message)
+            message = snapshot.plain.removesuffix("\n")
+            fields[_RICH_SNAPSHOT] = snapshot
+        backend = self._backend or self._get_backend(accepted=True)
+        if source is not None:
+            backend = backend.patch(
+                lambda record: record.update(
+                    name=source.module,
+                    function=source.function,
+                    file=type(record["file"])(basename(source.path), source.path),
+                    module=splitext(basename(source.path))[0],
+                    line=source.line,
+                )
+            )
+        backend.bind(**fields).opt(depth=depth, exception=exception).log(level, message)
 
     def log(self, level: Level, message: RenderableType, *args: object, **fields: object) -> None:
         """Log a message at a supported severity.
@@ -613,3 +696,12 @@ class Logger:
     def exception(self, message: RenderableType, *args: object, **fields: object) -> None:
         """Log an error with the currently handled exception, without locals."""
         self._emit("ERROR", message, args, fields, exception=True)
+
+
+def _reset_after_fork() -> None:
+    """Release logger locks that another parent thread held during ``fork``."""
+    for logger in list(_LOGGERS):
+        logger._reset_after_fork()
+
+
+register_at_fork(after_in_child=_reset_after_fork)
