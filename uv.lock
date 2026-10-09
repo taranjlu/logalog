@@ -343,15 +343,6 @@ wheels = [
 ]
 
 [[package]]
-name = "configurator"
-version = "3.2.0"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/62/06/7c27b07622df52e2591ea581485afb84bbc3386493bb47a2f6992fe7b78c/configurator-3.2.0.tar.gz", hash = "sha256:42650ea55e7df5e4601c1c3d137d1b0ea0bec332448947627c368e0254a36043", size = 35490, upload-time = "2023-09-13T07:03:15.373Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/99/f8/dbc0d0b77eb72fbcfc94446d3b67049575d963a99280a3a41079cbce3cd7/configurator-3.2.0-py3-none-any.whl", hash = "sha256:be39c84f9a9aafd09b3c34acdc267ca4a5804e51975bfdd01cb2d433e9856766", size = 12655, upload-time = "2023-09-13T07:03:13.773Z" },
-]
-
-[[package]]
 name = "coverage"
 version = "7.16.0"
 source = { registry = "https://pypi.org/simple" }
@@ -683,10 +674,13 @@ name = "logalog"
 version = "0.0.0"
 source = { editable = "." }
 dependencies = [
-    { name = "configurator" },
     { name = "loguru" },
-    { name = "pyyaml" },
     { name = "rich" },
+]
+
+[package.optional-dependencies]
+yaml = [
+    { name = "pyyaml" },
 ]
 
 [package.dev-dependencies]
@@ -704,6 +698,7 @@ dev = [
     { name = "pytest-randomly" },
     { name = "pytest-spec" },
     { name = "pytest-sugar" },
+    { name = "pyyaml" },
     { name = "resvg-py" },
     { name = "ruff" },
     { name = "ty" },
@@ -712,11 +707,11 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "configurator", specifier = ">=3.2.0,<4" },
     { name = "loguru", specifier = ">=0.7.3,<0.8" },
-    { name = "pyyaml", specifier = ">=6.0.3,<7" },
+    { name = "pyyaml", marker = "extra == 'yaml'", specifier = ">=6.0.3,<7" },
     { name = "rich", specifier = ">=15.0.0,<16" },
 ]
+provides-extras = ["yaml"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -733,6 +728,7 @@ dev = [
     { name = "pytest-randomly", specifier = ">=4.1.0,<5" },
     { name = "pytest-spec", specifier = ">=6.1.0,<7" },
     { name = "pytest-sugar", specifier = ">=1.1.1,<2" },
+    { name = "pyyaml", specifier = ">=6.0.3,<7" },
     { name = "resvg-py", specifier = ">=0.5.0" },
     { name = "ruff", specifier = ">=0.16.6" },
     { name = "ty", specifier = ">=0.0.79" },

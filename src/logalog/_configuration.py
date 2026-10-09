@@ -8,9 +8,6 @@ from os import PathLike
 from pathlib import Path
 from typing import Literal, cast
 
-from configurator import Config
-from configurator.merge import merge_dict
-
 _COMPRESSIONS = frozenset({"gz", "bz2", "xz", "lzma", "tar", "tar.gz", "tar.bz2", "tar.xz", "zip"})
 _FILE_CHECKS: dict[str, Callable[[object], bool]] = {
     "path": lambda value: isinstance(value, (str, PathLike)),
@@ -162,8 +159,12 @@ def _read(path: Path) -> object:
     if path.suffix == ".json":
         return json.loads(text, object_pairs_hook=_pairs)
     if path.suffix in {".yaml", ".yml"}:
-        from ._yaml import load
-
+        try:
+            from ._yaml import load
+        except ModuleNotFoundError as error:
+            raise ConfigurationError(
+                f"{path}: YAML configuration needs the 'logalog[yaml]' extra"
+            ) from error
         return load(text)
     raise ValueError("Supported configuration suffixes are .toml, .json, .yaml, and .yml")
 
@@ -257,6 +258,30 @@ def _validate(data: Mapping[str, object], source: Path) -> Configuration:
     )
 
 
+def _merge(base: dict[str, object], update: Mapping[str, object]) -> dict[str, object]:
+    """Merge mappings recursively. Replace lists and scalar values.
+
+    Parameters
+    ----------
+    base : dict[str, object]
+        Earlier settings. This function changes it in place.
+    update : Mapping[str, object]
+        Later settings, which take priority.
+
+    Returns
+    -------
+    dict[str, object]
+        The merged ``base`` mapping.
+    """
+    for key, value in update.items():
+        if isinstance(value, Mapping):
+            current = base.get(key)
+            base[key] = _merge(current if isinstance(current, dict) else {}, value)
+        else:
+            base[key] = value
+    return base
+
+
 def load_configuration(*sources: str | PathLike[str]) -> Configuration:
     """Load explicit files in order, with later values taking priority.
 
@@ -267,7 +292,7 @@ def load_configuration(*sources: str | PathLike[str]) -> Configuration:
         loads only ``[tool.logalog]``. Relative destination paths use the
         directory of the file that supplies the final ``files`` list.
     """
-    merged = Config({})
+    merged: dict[str, object] = {}
     last = Path("<defaults>")
     for source in sources:
         path = Path(source).absolute()
@@ -283,11 +308,11 @@ def load_configuration(*sources: str | PathLike[str]) -> Configuration:
                 document = dict(document)
                 document["files"] = list(_files(document["files"], path))
             _validate(document, path)
-            merged.merge(document, mergers={dict: merge_dict})
+            _merge(merged, document)
             last = path
         except ConfigurationError:
             raise
         # Parser errors are ValueError subclasses.
         except (OSError, UnicodeError, TypeError, ValueError) as error:
             raise ConfigurationError(f"{path}: {error}") from error
-    return _validate(merged.data, last)
+    return _validate(merged, last)

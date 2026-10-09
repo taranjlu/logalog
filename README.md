@@ -101,7 +101,9 @@ For `pyproject.toml`, quote dotted module names: `[tool.logalog.modules."myapp.w
 
 The loader does not search for files or read command-line options. It does not load
 environment variables, `.env` files, interpolation, or executable settings. YAML uses
-a private subclass of PyYAML's safe loader. Configurator merges the parsed mappings.
+a private subclass of PyYAML's safe loader. A short recursive merge combines the parsed mappings.
+YAML support is optional. Install `logalog[yaml]` to load `.yaml` and `.yml` files.
+Without the extra, a YAML path raises `ConfigurationError` that names the extra.
 YAML Booleans follow YAML 1.2: only `true` and `false`, in lowercase, title case, or uppercase.
 Values such as `on` and `yes` stay strings.
 

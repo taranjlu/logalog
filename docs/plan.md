@@ -270,6 +270,10 @@ Treat file storage as user-authored configuration initially. Automatic rewriting
 
 ### Library decision
 
+Decision on 2026-10-09: a short recursive merge in the loader replaces Configurator.
+PyYAML is the optional `yaml` extra and loads only for YAML paths.
+See [performance](performance.md). The rest of this section is historical.
+
 Use Configurator 3.2.0 for merging. Its documented per-call merge table lets us merge
 mappings without appending lists.[17] It has an MIT license and no required core
 dependencies.[18] The pinned release dates from 2023.[18] Keep the adapter small

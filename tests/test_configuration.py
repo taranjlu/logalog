@@ -174,6 +174,17 @@ def test_malformed_configuration_has_source_and_clear_path(
     assert str(path) in str(error.value)
 
 
+def test_yaml_without_extra_names_the_extra(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Explain the optional dependency when PyYAML is not installed."""
+    monkeypatch.setitem(sys.modules, "yaml", None)
+    monkeypatch.delitem(sys.modules, "logalog._yaml", raising=False)
+    path = _write(tmp_path / "settings.yaml", "debug: true")
+    with pytest.raises(ConfigurationError, match=r"logalog\[yaml\]"):
+        load_configuration(path)
+
+
 def test_missing_file_and_bad_utf8_are_clear(tmp_path: Path) -> None:
     """Wrap file and text decoding failures with the source path."""
     missing = tmp_path / "missing.toml"
@@ -228,14 +239,9 @@ before = dict(os.environ)
 from logalog import load_configuration
 assert load_configuration(sys.argv[1]).debug is True
 assert dict(os.environ) == before
-from configurator import Config
-unrelated = Config({"files": ["first"]})
-unrelated.merge({"files": ["second"]})
-assert unrelated.data["files"] == ["first", "second"]
 assert sys.argv[2:] == ['--application-flag']
 """
     environment = os.environ.copy()
-    environment["OMNICONF_JSON_FILENAME"] = str(tmp_path / "missing.json")
     result = subprocess.run(  # noqa: S603 -- Fixed isolated test script.
         [sys.executable, "-I", "-c", script, str(config), "--application-flag"],
         env=environment,

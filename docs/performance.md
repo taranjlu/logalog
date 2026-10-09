@@ -137,3 +137,22 @@ suppressed call. Each `os.environ.get` took about 0.34 µs, and each call read s
 The suppressed debug call is now 1.4 µs. This change does not touch import or backend
 setup, so the lower import, hook, and first-call values in this run show run-to-run
 variation of about 10%. An invalid verbose or debug value now raises only when a call reads it.
+
+## Round 5: remove Configurator and make PyYAML optional
+
+Change: a 20-line recursive merge replaces Configurator. It merges mappings and replaces
+lists and scalar values on purpose. PyYAML moves to the optional `yaml` extra.
+A YAML path without the extra raises `ConfigurationError` that names the extra.
+
+| Measurement | Before | After |
+| --- | ---: | ---: |
+| import logalog (ms) | 13.5 | 12.3 |
+| hook process with one record (ms) | 94.2 | 92.8 |
+| first call, default delivery (ms) | 56.0 | 54.9 |
+| suppressed debug call (µs) | 1.4 | 1.3 |
+| emitted info call (µs) | 233.0 | 234.2 |
+| 8 threads, synchronous (records/s) | 3,038 | 2,946 |
+| 8 threads, queued (records/s) | 2,772 | 2,686 |
+
+Import is about 1 ms faster and now equals `import logging` (12.1 ms in this run).
+The runtime dependencies are now Loguru and Rich only.
