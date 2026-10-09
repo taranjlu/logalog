@@ -223,11 +223,22 @@ class Logger:
     def __init__(
         self,
         *,
-        synchronous: bool = False,
+        synchronous: bool | None = None,
         prefix: str = "LOGALOG",
         files: tuple[FileDestination, ...] = (),
     ) -> None:
-        """Keep import free of output and worker threads."""
+        """Keep import free of output and worker threads.
+
+        Parameters
+        ----------
+        synchronous : bool or None, default=None
+            Delivery mode. ``None`` writes in the calling thread until :meth:`initialize`
+            selects the queue for worker processes.
+        prefix : str, default="LOGALOG"
+            Uppercase prefix for live control environment variables.
+        files : tuple[FileDestination, ...], default=()
+            Text and JSON Lines destinations.
+        """
         _validate("module", prefix)
         _validate_files(files)
         self._backend: LoguruLogger | None = None
@@ -251,13 +262,15 @@ class Logger:
         self._lock = Condition()
         self._active = 0
 
-    def _get_backend(self, *, accepted: bool = False) -> LoguruLogger:
+    def _get_backend(self, *, accepted: bool = False, queue: bool = False) -> LoguruLogger:
         """Initialize the backend once, including during concurrent first use.
 
         Parameters
         ----------
         accepted : bool, default=False
             Permit a call that was accepted before shutdown started.
+        queue : bool, default=False
+            Select queued delivery when the delivery mode is automatic.
         """
         with self._lock:
             if self._closed and not accepted:
@@ -265,6 +278,8 @@ class Logger:
             if self._backend is None:
                 from ._backend import create_backend
 
+                # Automatic delivery uses the queue only for worker processes.
+                self._synchronous = not queue if self._synchronous is None else self._synchronous
                 self._backend = create_backend(enqueue=not self._synchronous, files=self._files)
                 self._owner_pid = getpid()
             return self._backend
@@ -284,11 +299,17 @@ class Logger:
         configuration : Configuration or None, default=None
             Stored settings loaded by :func:`load_configuration`.
         synchronous : bool or None, default=None
-            Write in the calling thread instead of through the Loguru queue.
+            ``True`` writes in the calling thread. ``False`` uses the Loguru queue.
+            ``None`` keeps the loaded setting, which defaults to automatic delivery.
         prefix : str or None, default=None
             Uppercase prefix for live control environment variables.
         files : tuple[FileDestination, ...] or None, default=None
             Text and JSON Lines destinations.
+
+        Raises
+        ------
+        RuntimeError
+            If the backend exists or the logger is shut down.
         """
         selected = configuration or Configuration()
         synchronous = selected.synchronous if synchronous is None else synchronous
@@ -307,15 +328,19 @@ class Logger:
             self._module_defaults = module_defaults
 
     def initialize(self) -> None:
-        """Create the owner queue before workers start."""
-        self._get_backend()
+        """Create the backend now. Automatic delivery selects the owner queue for workers."""
+        self._get_backend(queue=True)
 
     def __getstate__(self) -> dict[str, object]:
         """Serialize only state needed by a spawned logging worker."""
+        backend = None if self._synchronous else self._get_backend(queue=True)
         if self._synchronous:
-            raise ValueError("Worker logging requires queued delivery")
+            raise ValueError(
+                "Worker logging requires queued delivery. "
+                "Call initialize() before the first record."
+            )
         return {
-            "backend": self._get_backend(),
+            "backend": backend,
             "owner_pid": self._owner_pid,
             "prefix": self._prefix,
             "control_defaults": self._control_defaults,

@@ -87,3 +87,29 @@ when the first record needs them. TOML and YAML parsers load only for those path
 The first record now pays the Loguru and Rich import cost. Import plus the first
 synchronous record is 75 ms, against 85 ms before. A process that emits no record,
 such as a hook with only suppressed calls, saves about 67 ms.
+
+## Round 3: automatic delivery
+
+Change: the owner chose automatic delivery. A logger writes in the calling thread until
+`LOG.initialize()` selects the queue for worker processes. `synchronous=True` or
+`synchronous=False` still fixes one mode.
+
+This round adds two rows to the benchmark. "Hook process with one record" is the wall
+time of a fresh process that imports logalog, emits one `info` record, and exits.
+"First call, default delivery" uses `LOG.configure(synchronous=None)`.
+The "Before" column is a new run of the round 2 code with these rows.
+
+| Measurement | Before | After |
+| --- | ---: | ---: |
+| import logalog (ms) | 14.2 | 15.0 |
+| hook process with one record (ms) | 113.0 | 108.2 |
+| first call, default delivery (ms) | 65.6 | 62.4 |
+| first synchronous call (ms) | 63.1 | 62.2 |
+| first queued call and flush (ms) | 67.2 | 66.1 |
+| suppressed debug call (µs) | 3.5 | 3.5 |
+| emitted info call (µs) | 243.4 | 240.7 |
+| 8 threads, synchronous (records/s) | 2,623 | 2,529 |
+| 8 threads, queued (records/s) | 2,556 | 2,560 |
+
+A one-record hook process is about 5 ms faster. It also no longer starts the writer
+thread or the `multiprocessing` resource tracker process. Other values do not change.

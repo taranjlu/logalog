@@ -15,9 +15,24 @@ from logalog import initialize_worker
 from logalog._logger import Logger
 
 
+def test_automatic_delivery_queues_only_for_workers() -> None:
+    """Write synchronously by default and queue after explicit initialization."""
+    direct = Logger()
+    direct.info("direct-default-marker")
+    assert direct._synchronous is True
+    owner = Logger()
+    owner.initialize()
+    assert owner._synchronous is False
+    owner.info("queued-owner-marker")
+    with pytest.raises(ValueError, match="initialize"):
+        pickle.dumps(direct)
+    direct.shutdown()
+    owner.shutdown()
+
+
 def test_default_queue_flush_and_shutdown(capsys: pytest.CaptureFixture[str]) -> None:
     """Flush queued output and reject calls after shutdown."""
-    log = Logger()
+    log = Logger(synchronous=False)
     log.info("queued-marker")
     assert log._backend is not None
     log.flush()
@@ -114,7 +129,7 @@ def fail(*args):
     raise OSError("sink-failure-marker")
 
 RichHandler.emit = fail
-log = Logger()
+log = Logger(synchronous=False)
 log.info("failed-event")
 log.shutdown()
 """
@@ -355,7 +370,7 @@ def test_unpickleable_field_fails_without_breaking_queue(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Report a producer serialization error and keep later delivery usable."""
-    log = Logger()
+    log = Logger(synchronous=False)
     with pytest.raises((AttributeError, pickle.PicklingError), match="pickle"):
         log.info("rejected-event", invalid=lambda: None)
     log.info("valid-after-rejection")

@@ -92,7 +92,7 @@ _FILE_KEYS = frozenset(FileDestination.__dataclass_fields__)
 class Configuration:
     """Contain validated settings from explicit files."""
 
-    synchronous: bool = False
+    synchronous: bool | None = None
     prefix: str = "LOGALOG"
     verbose: bool = False
     debug: bool = False
@@ -109,9 +109,8 @@ class Configuration:
             If a control is not a Boolean or a module name is invalid or repeated.
         """
         # A truthy non-Boolean value could silence or enable output by mistake.
-        if any(
-            type(value) is not bool
-            for value in (self.synchronous, self.verbose, self.debug, self.silent)
+        if (self.synchronous is not None and type(self.synchronous) is not bool) or any(
+            type(value) is not bool for value in (self.verbose, self.debug, self.silent)
         ):
             raise ConfigurationError("Delivery and control settings must be Booleans")
         for module, controls in self.modules:
@@ -246,7 +245,7 @@ def _validate(data: Mapping[str, object], source: Path) -> Configuration:
             )
         )
     return Configuration(
-        synchronous=_bool(data.get("synchronous", False), source, "synchronous"),
+        synchronous=_optional_bool(data.get("synchronous"), source, "synchronous"),
         prefix=prefix,
         verbose=_bool(data.get("verbose", False), source, "verbose"),
         debug=_bool(data.get("debug", False), source, "debug"),

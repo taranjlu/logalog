@@ -11,6 +11,7 @@ import re
 import statistics
 import subprocess
 import sys
+import time
 
 IMPORT_TIME = re.compile(r"import time:\s+\d+\s+\|\s+(\d+)\s+\|\s+(\S+)$")
 
@@ -25,6 +26,11 @@ LOG.configure(synchronous={synchronous})
 LOG.info("first event")
 LOG.flush()
 print((time.perf_counter() - imported) * 1000)
+"""
+
+HOOK = """
+from logalog import LOG
+LOG.info("hook event")
 """
 
 PER_CALL = """
@@ -127,6 +133,26 @@ def _probe(code: str, environment: dict[str, str]) -> float:
     return float(_run(["-c", code], environment).stdout)
 
 
+def _wall_time(code: str, environment: dict[str, str]) -> float:
+    """Return the wall time of a whole process in milliseconds.
+
+    Parameters
+    ----------
+    code : str
+        Python probe source.
+    environment : dict[str, str]
+        Process environment.
+
+    Returns
+    -------
+    float
+        Time from process start to exit, including interpreter startup.
+    """
+    start = time.perf_counter()
+    _run(["-c", code], environment)
+    return (time.perf_counter() - start) * 1000
+
+
 def main() -> None:
     """Print a Markdown table of median results."""
     parser = argparse.ArgumentParser(description=__doc__)
@@ -144,6 +170,10 @@ def main() -> None:
     measurements = {
         "import logging (ms)": lambda: _import_time("logging", environment),
         "import logalog (ms)": lambda: _import_time("logalog", environment),
+        "hook process with one record (ms)": lambda: _wall_time(HOOK, environment),
+        "first call, default delivery (ms)": lambda: _probe(
+            FIRST_CALL.format(synchronous=None), environment
+        ),
         "first synchronous call (ms)": lambda: _probe(
             FIRST_CALL.format(synchronous=True), environment
         ),

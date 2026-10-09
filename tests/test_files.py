@@ -215,7 +215,10 @@ def test_queued_file_serialization_failure_keeps_later_writes(
 ) -> None:
     """Reject an unsafe field before any destination receives the event."""
     paths = (tmp_path / "queue.log", tmp_path / "queue.jsonl")
-    log = Logger(files=(FileDestination(paths[0]), FileDestination(paths[1], kind="json")))
+    log = Logger(
+        synchronous=False,
+        files=(FileDestination(paths[0]), FileDestination(paths[1], kind="json")),
+    )
     with pytest.raises((AttributeError, TypeError, pickle.PicklingError)):
         log.info("rejected", invalid=lambda: None)
     circular: dict[str, object] = {}
@@ -247,12 +250,13 @@ def test_close_failure_still_closes_later_destinations(
 
     monkeypatch.setattr(FileSink, "stop", stop)
     paths = [tmp_path / "first.log", tmp_path / "second.log"]
-    log = Logger(files=tuple(FileDestination(path) for path in paths))
+    before = set(threads())
+    log = Logger(synchronous=False, files=tuple(FileDestination(path) for path in paths))
     log.info("closing")
     with pytest.raises(OSError, match="close-failure-marker"):
         log.shutdown()
     assert stopped == paths
-    assert not [thread for thread in threads() if thread.name.startswith("loguru-writer")]
+    assert set(threads()) <= before
     with pytest.raises(RuntimeError, match="shut down"):
         log.info("after-failure")
 

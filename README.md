@@ -8,7 +8,7 @@ Check name availability again before public release.
 
 The seven implemented layers provide typed logging, Rich output, and live environment controls.
 They also provide files, configuration loading, sections, decorators, and command display.
-Delivery uses Loguru's queue by default. A synchronous override is available.
+Delivery is automatic by default: synchronous in one process, queued for worker processes.
 No package release or public repository exists as part of this setup.
 
 ## Usage
@@ -50,8 +50,12 @@ plain readable output. JSON records contain the same plain message and user fiel
 They do not contain ANSI sequences or private Rich objects. Suppressed events do not
 render their content.
 
-Call `LOG.configure(synchronous=True)` before the first log call to write in the
-calling thread. Use `LOG.configure(prefix="MY_APP")` to replace the default
+By default, delivery is automatic. Records write in the calling thread until
+`LOG.initialize()` runs. That call creates the owner queue for worker processes.
+Call `LOG.configure(synchronous=True)` or `LOG.configure(synchronous=False)` before the
+first log call to fix one mode. Queued delivery starts a writer thread and a
+`multiprocessing` resource tracker process. Synchronous delivery starts neither.
+Use `LOG.configure(prefix="MY_APP")` to replace the default
 `LOGALOG` environment prefix. Call `LOG.flush()` to wait for queued records.
 Flush does not flush file buffers. Files with `buffering=1`, the default, write each line.
 Call `LOG.shutdown()` after workers stop to flush records and close the owner handlers.
@@ -89,7 +93,7 @@ LOG.configure(configuration=settings)
 ```
 
 The root keys are `synchronous`, `prefix`, `verbose`, `debug`, `silent`,
-`modules`, and `files`. A module entry accepts only the three control keys.
+`modules`, and `files`. An omitted or null `synchronous` selects automatic delivery. A module entry accepts only the three control keys.
 Each file entry accepts the `FileDestination` fields. Relative destination paths
 use the directory of the source that supplies the final `files` list.
 The loader fixes these paths before the working directory can change.
@@ -122,7 +126,9 @@ Exit handlers that you register before `import logalog` run after that step. The
 use synchronous delivery. The owner process appends them to its files.
 
 For multiprocessing, set the process start method first. Then call
-`LOG.initialize()` in the owner before processes start. Serialization also initializes an unused logger.
+`LOG.initialize()` in the owner before processes start and before the first record.
+Serialization also initializes an unused logger with queued delivery. A logger that
+already writes synchronously cannot serialize and raises `ValueError`.
 Pass `LOG` to each worker
 and call `initialize_worker(owner)` before the worker logs. Each worker must call
 `LOG.flush()` before it exits. Forced process termination can lose queued records.
