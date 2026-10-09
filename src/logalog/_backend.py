@@ -1,23 +1,23 @@
 """Isolate the Loguru compatibility boundary and Rich output."""
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from contextlib import suppress
-from dataclasses import dataclass
 from functools import partial
 from logging import LogRecord
-from os import PathLike
 from traceback import TracebackException
 from types import TracebackType
-from typing import TYPE_CHECKING, Literal, cast
+from typing import TYPE_CHECKING, cast
 
 from loguru._logger import Core, Logger
 from loguru._recattrs import RecordException
-from rich.console import Console, ConsoleRenderable, Group
+from rich.console import Console, ConsoleRenderable, Group, RenderableType
 from rich.logging import RichHandler
 from rich.text import Text
 from rich.traceback import Traceback
 
-_RICH_SNAPSHOT = "__logalog_rich_snapshot__"
+from ._configuration import FileDestination
+from ._logger import _RICH_SNAPSHOT
+
 _CONSOLE_TRACEBACK = "__logalog_console_traceback__"
 
 if TYPE_CHECKING:
@@ -53,76 +53,48 @@ class _SnapshotHandler(RichHandler):
         return Group(*content)
 
 
-_COMPRESSIONS = frozenset({"gz", "bz2", "xz", "lzma", "tar", "tar.gz", "tar.bz2", "tar.xz", "zip"})
-_FILE_CHECKS: dict[str, Callable[[object], bool]] = {
-    "path": lambda value: isinstance(value, (str, PathLike)),
-    "kind": lambda value: value in ("text", "json"),
-    "rotation": lambda value: value is None or type(value) in (str, int),
-    "retention": lambda value: value is None or type(value) in (str, int),
-    "compression": lambda value: (
-        value is None or (isinstance(value, str) and value in _COMPRESSIONS)
-    ),
-    "delay": lambda value: type(value) is bool,
-    "watch": lambda value: type(value) is bool,
-    "mode": lambda value: value in ("a", "w"),
-    "encoding": lambda value: type(value) is str,
-    "buffering": lambda value: type(value) is int,
-}
+def create_renderer() -> Console:
+    """Create the producer console that renders Rich objects to snapshots.
+
+    Returns
+    -------
+    Console
+        Console that follows the current stderr width and color support.
+    """
+    return Console(stderr=True, markup=False, highlight=False)
 
 
-@dataclass(frozen=True, slots=True)
-class FileDestination:
-    """Configure one native Loguru file sink.
+def render_snapshot(console: Console, message: RenderableType, indentation: str | None) -> Text:
+    """Render a Rich object to styled text before queue submission.
 
     Parameters
     ----------
-    path : str or PathLike[str]
-        File path. Loguru time fields are accepted.
-    kind : Literal["text", "json"], default="text"
-        Select readable text or JSON Lines output.
-    rotation : str or int or None, default="10 MB"
-        Native Loguru size or time rotation rule. Use ``None`` to disable it.
-    retention : str or int or None, default=5
-        Native Loguru archive age or count. Use ``None`` to disable it.
-    compression : Literal["gz", "bz2", "xz", "lzma", "tar", "tar.gz",
-        "tar.bz2", "tar.xz", "zip"] or None, default=None
-        Native Loguru archive compression.
-    delay : bool, default=False
-        Create the file after the first accepted event.
-    watch : bool, default=False
-        Reopen a file that an external program replaces.
-    mode : Literal["a", "w"], default="a"
-        Open the active file for append or replacement.
-    encoding : str, default="utf8"
-        Text encoding.
-    buffering : int, default=1
-        File buffering policy.
+    console : Console
+        Producer console from :func:`create_renderer`.
+    message : RenderableType
+        Rich object to render.
+    indentation : str or None
+        Section indentation for each line, or ``None`` outside a section.
+
+    Returns
+    -------
+    Text
+        Stable styled snapshot.
     """
-
-    path: str | PathLike[str]
-    kind: Literal["text", "json"] = "text"
-    rotation: str | int | None = "10 MB"
-    retention: str | int | None = 5
-    compression: (
-        Literal["gz", "bz2", "xz", "lzma", "tar", "tar.gz", "tar.bz2", "tar.xz", "zip"] | None
-    ) = None
-    delay: bool = False
-    watch: bool = False
-    mode: Literal["a", "w"] = "a"
-    encoding: str = "utf8"
-    buffering: int = 1
-
-    def __post_init__(self) -> None:
-        """Reject a value that could write records to an unintended file or format.
-
-        Raises
-        ------
-        ValueError
-            If a field has an unsupported type or value.
-        """
-        for name, valid in _FILE_CHECKS.items():
-            if not valid(getattr(self, name)):
-                raise ValueError(f"invalid {name}")
+    options = console.options
+    if indentation is not None:
+        options = options.update_width(max(1, options.max_width - len(indentation)))
+    snapshot = Text.assemble(
+        *(
+            (segment.text, segment.style) if segment.style else segment.text
+            for segment in console.render(message, options)
+        )
+    )
+    if indentation is None:
+        return snapshot
+    if snapshot.plain.endswith("\n"):
+        snapshot = snapshot[:-1]
+    return Text(indentation) + Text(f"\n{indentation}").join(snapshot.split(allow_blank=True))
 
 
 def _message_format(record: Mapping[str, object]) -> str:

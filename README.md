@@ -203,6 +203,10 @@ Queued tracebacks use plain traceback text inside the Rich message. Synchronous 
 Tracebacks exclude local variable values, but exception messages and source lines can still contain sensitive data.
 
 Import produces no output and starts no worker thread. It registers one exit handler for the shared logger.
+Import does not load Loguru, Rich, or the TOML and YAML parsers. The first emitted record
+loads Loguru and the output modules. A suppressed record loads nothing.
+Loguru adds its default handler to its own shared `logger` when it loads.
+Logalog does not use or change that shared logger.
 The first emitted record creates one reusable stderr console.
 The library does not create a stdout console or change application logging handlers.
 Keep stdout available for application data, command results, and machine-readable output.

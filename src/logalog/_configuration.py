@@ -2,62 +2,90 @@
 
 import json
 import re
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from os import PathLike
 from pathlib import Path
-from tomllib import TOMLDecodeError
-from tomllib import load as load_toml
-from typing import cast
+from typing import Literal, cast
 
-import yaml
 from configurator import Config
 from configurator.merge import merge_dict
-from yaml.constructor import ConstructorError
-from yaml.resolver import BaseResolver
 
-from ._backend import FileDestination
+_COMPRESSIONS = frozenset({"gz", "bz2", "xz", "lzma", "tar", "tar.gz", "tar.bz2", "tar.xz", "zip"})
+_FILE_CHECKS: dict[str, Callable[[object], bool]] = {
+    "path": lambda value: isinstance(value, (str, PathLike)),
+    "kind": lambda value: value in ("text", "json"),
+    "rotation": lambda value: value is None or type(value) in (str, int),
+    "retention": lambda value: value is None or type(value) in (str, int),
+    "compression": lambda value: (
+        value is None or (isinstance(value, str) and value in _COMPRESSIONS)
+    ),
+    "delay": lambda value: type(value) is bool,
+    "watch": lambda value: type(value) is bool,
+    "mode": lambda value: value in ("a", "w"),
+    "encoding": lambda value: type(value) is str,
+    "buffering": lambda value: type(value) is int,
+}
+
+
+@dataclass(frozen=True, slots=True)
+class FileDestination:
+    """Configure one native Loguru file sink.
+
+    Parameters
+    ----------
+    path : str or PathLike[str]
+        File path. Loguru time fields are accepted.
+    kind : Literal["text", "json"], default="text"
+        Select readable text or JSON Lines output.
+    rotation : str or int or None, default="10 MB"
+        Native Loguru size or time rotation rule. Use ``None`` to disable it.
+    retention : str or int or None, default=5
+        Native Loguru archive age or count. Use ``None`` to disable it.
+    compression : Literal["gz", "bz2", "xz", "lzma", "tar", "tar.gz",
+        "tar.bz2", "tar.xz", "zip"] or None, default=None
+        Native Loguru archive compression.
+    delay : bool, default=False
+        Create the file after the first accepted event.
+    watch : bool, default=False
+        Reopen a file that an external program replaces.
+    mode : Literal["a", "w"], default="a"
+        Open the active file for append or replacement.
+    encoding : str, default="utf8"
+        Text encoding.
+    buffering : int, default=1
+        File buffering policy.
+    """
+
+    path: str | PathLike[str]
+    kind: Literal["text", "json"] = "text"
+    rotation: str | int | None = "10 MB"
+    retention: str | int | None = 5
+    compression: (
+        Literal["gz", "bz2", "xz", "lzma", "tar", "tar.gz", "tar.bz2", "tar.xz", "zip"] | None
+    ) = None
+    delay: bool = False
+    watch: bool = False
+    mode: Literal["a", "w"] = "a"
+    encoding: str = "utf8"
+    buffering: int = 1
+
+    def __post_init__(self) -> None:
+        """Reject a value that could write records to an unintended file or format.
+
+        Raises
+        ------
+        ValueError
+            If a field has an unsupported type or value.
+        """
+        for name, valid in _FILE_CHECKS.items():
+            if not valid(getattr(self, name)):
+                raise ValueError(f"invalid {name}")
+
 
 _ROOT_KEYS = frozenset({"synchronous", "prefix", "verbose", "debug", "silent", "modules", "files"})
 _CONTROL_KEYS = frozenset({"verbose", "debug", "silent"})
 _FILE_KEYS = frozenset(FileDestination.__dataclass_fields__)
-
-
-class _UniqueSafeLoader(yaml.SafeLoader):
-    """Reject duplicate YAML mapping keys."""
-
-
-def _mapping(loader: _UniqueSafeLoader, node: yaml.Node) -> dict[object, object]:
-    """Build one safe YAML mapping with unique keys."""
-    if not isinstance(node, yaml.MappingNode):
-        raise ConstructorError(None, None, "Expected a mapping node", node.start_mark)
-    result: dict[object, object] = {}
-    for key_node, value_node in node.value:
-        key = loader.construct_object(key_node, deep=False)
-        if key in result:
-            raise ConstructorError(
-                "while constructing a mapping",
-                node.start_mark,
-                "duplicate key",
-                key_node.start_mark,
-            )
-        result[key] = loader.construct_object(value_node, deep=True)
-    return result
-
-
-_UniqueSafeLoader.add_constructor(
-    BaseResolver.DEFAULT_MAPPING_TAG,
-    _mapping,
-)
-# Use YAML 1.2 Booleans. YAML 1.1 also reads values such as on, off, yes, and no as Booleans.
-_BOOL_TAG = "tag:yaml.org,2002:bool"
-_UniqueSafeLoader.yaml_implicit_resolvers = {
-    first: [(tag, pattern) for tag, pattern in resolvers if tag != _BOOL_TAG]
-    for first, resolvers in yaml.SafeLoader.yaml_implicit_resolvers.items()
-}
-_UniqueSafeLoader.add_implicit_resolver(
-    _BOOL_TAG, re.compile(r"^(?:true|True|TRUE|false|False|FALSE)$"), list("tTfF")
-)
 
 
 @dataclass(frozen=True, slots=True)
@@ -128,13 +156,16 @@ def _read(path: Path) -> object:
     """Read one supported document without discovery or interpolation."""
     with path.open("rb") as stream:
         if path.suffix == ".toml":
+            from tomllib import load as load_toml
+
             return load_toml(stream)
         text = stream.read().decode("utf8")
     if path.suffix == ".json":
         return json.loads(text, object_pairs_hook=_pairs)
     if path.suffix in {".yaml", ".yml"}:
-        # The private SafeLoader subclass also rejects duplicate keys.
-        return yaml.load(text, Loader=_UniqueSafeLoader)  # noqa: S506 # nosec B506
+        from ._yaml import load
+
+        return load(text)
     raise ValueError("Supported configuration suffixes are .toml, .json, .yaml, and .yml")
 
 
@@ -257,14 +288,7 @@ def load_configuration(*sources: str | PathLike[str]) -> Configuration:
             last = path
         except ConfigurationError:
             raise
-        except (
-            OSError,
-            UnicodeError,
-            TOMLDecodeError,
-            json.JSONDecodeError,
-            yaml.YAMLError,
-            TypeError,
-            ValueError,
-        ) as error:
+        # Parser errors are ValueError subclasses.
+        except (OSError, UnicodeError, TypeError, ValueError) as error:
             raise ConfigurationError(f"{path}: {error}") from error
     return _validate(merged.data, last)

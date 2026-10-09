@@ -2,8 +2,12 @@
 
 from atexit import register
 
-from ._backend import FileDestination
-from ._configuration import Configuration, ConfigurationError, load_configuration
+from ._configuration import (
+    Configuration,
+    ConfigurationError,
+    FileDestination,
+    load_configuration,
+)
 from ._logger import Logger as _Logger
 from ._logger import environment_names
 

@@ -66,3 +66,24 @@ prefixes, and module names.
 
 Import is about 39 ms faster. Each suppressed call is about 1.3 µs faster, because
 the wrapper of each public method and of `_emit` is gone.
+
+## Round 2: load Loguru, Rich, and the parsers on first use
+
+Change: import only light modules in `logalog`. The backend module loads Loguru and Rich
+when the first record needs them. TOML and YAML parsers load only for those paths.
+`FileDestination` moves to the configuration module, so the public names stay light.
+
+| Measurement | Before | After |
+| --- | ---: | ---: |
+| import logalog (ms) | 81.7 | 14.3 |
+| first synchronous call (ms) | 3.8 | 60.9 |
+| first queued call and flush (ms) | 7.4 | 65.5 |
+| suppressed debug call (µs) | 3.6 | 3.5 |
+| emitted info call (µs) | 242.1 | 244.0 |
+| 8 threads, synchronous (records/s) | 2,568 | 2,661 |
+| 8 threads, queued (records/s) | 2,550 | 2,530 |
+
+`import logalog` is now within about 1.1 times `import logging` (13.3 ms in this run).
+The first record now pays the Loguru and Rich import cost. Import plus the first
+synchronous record is 75 ms, against 85 ms before. A process that emits no record,
+such as a hook with only suppressed calls, saves about 67 ms.

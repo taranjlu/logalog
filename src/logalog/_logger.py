@@ -1,4 +1,9 @@
-"""Provide the typed core logging interface."""
+"""Provide the typed core logging interface.
+
+Import only light modules here. Loguru, Rich, and the parsers load on first use.
+"""
+
+from __future__ import annotations
 
 import json
 import re
@@ -6,24 +11,21 @@ from collections.abc import Callable, Iterable, Sequence
 from contextvars import ContextVar, Token
 from dataclasses import replace
 from functools import cache, partial, wraps
-from inspect import currentframe, isasyncgenfunction, iscoroutinefunction, isgeneratorfunction
 from os import PathLike, environ, fspath, getpid, register_at_fork
 from os import name as os_name
 from os.path import basename, normcase, realpath, splitext
-from shlex import join as shell_join
-from subprocess import list2cmdline
+from sys import _getframe
 from threading import Condition
 from time import monotonic
-from types import FunctionType, TracebackType
-from typing import Literal, NamedTuple, ParamSpec, TypeVar, cast, overload
+from types import FrameType, FunctionType, TracebackType
+from typing import TYPE_CHECKING, Literal, NamedTuple, ParamSpec, TypeVar, cast, overload
 from weakref import WeakSet
 
-from loguru._logger import Logger as LoguruLogger
-from rich.console import Console, RenderableType
-from rich.text import Text
+from ._configuration import Configuration, ConfigurationError, FileDestination, check_module
 
-from ._backend import _RICH_SNAPSHOT, FileDestination, close_backend, create_backend
-from ._configuration import Configuration, ConfigurationError, check_module
+if TYPE_CHECKING:
+    from loguru._logger import Logger as LoguruLogger
+    from rich.console import Console, RenderableType
 
 Level = Literal["TRACE", "DEBUG", "VERBOSE", "INFO", "SUCCESS", "WARNING", "ERROR", "CRITICAL"]
 Control = Literal["verbose", "debug", "silent"]
@@ -34,7 +36,8 @@ _PREFIX = re.compile(r"[A-Z][A-Z0-9_]*\Z")
 _TRUE = frozenset({"1", "true", "yes", "on"})
 _FALSE = frozenset({"0", "false", "no", "off"})
 _REDACTED = "[REDACTED]"
-_LOGGERS: "WeakSet[Logger]" = WeakSet()
+_LOGGERS: WeakSet[Logger] = WeakSet()
+_RICH_SNAPSHOT = "__logalog_rich_snapshot__"
 
 
 class _Source(NamedTuple):
@@ -48,14 +51,20 @@ class _Source(NamedTuple):
 
 def _quote_command(arguments: Sequence[str], *, windows: bool = os_name == "nt") -> str:
     """Quote an argument vector for the selected platform convention."""
-    return list2cmdline(arguments) if windows else shell_join(arguments)
+    if windows:
+        from subprocess import list2cmdline
+
+        return list2cmdline(arguments)
+    from shlex import join
+
+    return join(arguments)
 
 
 class _Section:
     """Manage one logger section without changing exception behavior."""
 
     def __init__(
-        self, logger: "Logger", title: str, elapsed: bool, source: _Source | None = None
+        self, logger: Logger, title: str, elapsed: bool, source: _Source | None = None
     ) -> None:
         self._logger = logger
         self._title = title
@@ -254,6 +263,8 @@ class Logger:
             if self._closed and not accepted:
                 raise RuntimeError("Logger is shut down")
             if self._backend is None:
+                from ._backend import create_backend
+
                 self._backend = create_backend(enqueue=not self._synchronous, files=self._files)
                 self._owner_pid = getpid()
             return self._backend
@@ -313,7 +324,7 @@ class Logger:
 
     def __setstate__(self, state: dict[str, object]) -> None:
         """Restore a queued logger without creating a worker thread."""
-        self._backend = cast(LoguruLogger, state["backend"])
+        self._backend = cast("LoguruLogger", state["backend"])
         self._synchronous = False
         self._prefix = cast(str, state["prefix"])
         self._files = ()
@@ -357,6 +368,8 @@ class Logger:
         if backend is not None:
             backend.complete()
             if self._owner_pid == getpid():
+                from ._backend import close_backend
+
                 close_backend(backend)
 
     def _close_at_exit(self) -> None:
@@ -379,7 +392,7 @@ class Logger:
                 self._backend = None
                 self._closed = False
 
-    def _use_worker_backend(self, owner: "Logger") -> None:
+    def _use_worker_backend(self, owner: Logger) -> None:
         """Use an owner's native Loguru queue in a worker process."""
         if owner._synchronous or owner._backend is None:
             raise ValueError("Worker logging requires an initialized owner with queued delivery")
@@ -423,6 +436,8 @@ class Logger:
             # Accept @LOG above @classmethod or @staticmethod as well as below.
             method = cast(Callable[P, R], function.__func__)
             return cast(Callable[P, R], type(function)(self._decorate(method, elapsed=elapsed)))
+        from inspect import isasyncgenfunction, iscoroutinefunction, isgeneratorfunction
+
         if isgeneratorfunction(function) or isasyncgenfunction(function):
             raise TypeError("LOG does not support generator functions")
         name = getattr(function, "__qualname__", type(function).__qualname__)
@@ -532,7 +547,7 @@ class Logger:
         source: _Source | None = None,
     ) -> None:
         """Preserve the external caller through library frames."""
-        frame = currentframe()
+        frame: FrameType | None = _getframe()
         depth = 0
         try:
             while frame is not None and frame.f_globals.get("__name__", "").startswith("logalog."):
@@ -605,23 +620,11 @@ class Logger:
         if not isinstance(message, str):
             if args:
                 raise ValueError("Rich renderables do not accept format arguments")
+            from ._backend import create_renderer, render_snapshot
+
             if self._renderer is None:
-                self._renderer = Console(stderr=True, markup=False, highlight=False)
-            options = self._renderer.options
-            if sections:
-                options = options.update_width(max(1, options.max_width - len(indentation)))
-            snapshot = Text.assemble(
-                *(
-                    (segment.text, segment.style) if segment.style else segment.text
-                    for segment in self._renderer.render(message, options)
-                )
-            )
-            if sections:
-                if snapshot.plain.endswith("\n"):
-                    snapshot = snapshot[:-1]
-                snapshot = Text(indentation) + Text(f"\n{indentation}").join(
-                    snapshot.split(allow_blank=True)
-                )
+                self._renderer = create_renderer()
+            snapshot = render_snapshot(self._renderer, message, indentation if sections else None)
             message = snapshot.plain.removesuffix("\n")
             fields[_RICH_SNAPSHOT] = snapshot
         backend = self._backend or self._get_backend(accepted=True)

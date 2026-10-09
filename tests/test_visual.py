@@ -16,7 +16,7 @@ from rich.syntax import Syntax
 from rich.table import Table
 from rich.text import Text
 
-from logalog import _backend, _logger
+from logalog import _backend
 from logalog._logger import Logger
 
 ASSETS = Path(__file__).parent / "visual"
@@ -55,10 +55,15 @@ def _render_scene(
         patch.setenv("VISUAL_TEST_DEBUG", "1")
         patch.setenv("VISUAL_TEST_VERBOSE", "1")
         patch.setattr(_backend, "Console", lambda **kwargs: console)
-        patch.setattr(_logger, "Console", partial(Console, width=width, color_system="truecolor"))
+        patch.setattr(
+            _backend,
+            "create_renderer",
+            lambda: Console(
+                stderr=True, markup=False, highlight=False, width=width, color_system="truecolor"
+            ),
+        )
         patch.setattr(_backend._SnapshotHandler, "emit", emit)
-        # Loguru creates a fresh standard logging record. Fix displayed time here,
-        # rather than changing a clock that the adapter does not use.
+        # The console shows the event time. Fix the displayed time so images match.
         patch.setattr(
             _backend,
             "_SnapshotHandler",
