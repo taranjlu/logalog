@@ -6,12 +6,12 @@ Run `just test-images` for the focused checks. Full test runs also include them.
 It renders SVG to PNG with `resvg-py`. OpenImageIO compares the decoded pixels
 with reviewed reference PNGs at zero tolerance. Dimensions and channel counts
 must match. Both delivery modes use the same reference for each scene and width.
-Negative tests detect a changed color and an incorrect canvas width.
 
 ## Coverage
 
-The main scenes run at 72, 80, and 120 columns in both delivery modes.
-The original mixed scene remains as a separate reference.
+The main scenes run at 72, 80, and 120 columns with synchronous delivery.
+The original mixed scene and the nested narrow table also run with queued delivery.
+These two cases check that queued records produce the same pixels.
 
 | Scene | Cases |
 | --- | --- |

@@ -385,7 +385,7 @@ Coverage includes subprocess execution.
 Use `just coverage` to write an HTML report to `htmlcov/index.html`.
 Use `just test-images` for the OpenImageIO visual regression checks.
 They cover levels, wrapping, indentation, tables, styles, code, and commands
-at multiple widths in both delivery modes.
+at multiple widths. Two representative cases also check queued delivery.
 See [image test guidance](tests/visual/README.md) for fonts and reference updates.
 
 For focused tests, use `uv run pytest --no-cov <test-path>`.

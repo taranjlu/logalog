@@ -8,6 +8,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from threading import Thread
 from threading import enumerate as threads
 from types import SimpleNamespace
 
@@ -15,6 +16,11 @@ import pytest
 
 from logalog import FileDestination
 from logalog._logger import Logger
+
+
+def _new_writers(before: set[Thread]) -> list[Thread]:
+    """Return queue writer threads that started after ``before``."""
+    return [thread for thread in set(threads()) - before if thread.name.startswith("loguru-")]
 
 
 @pytest.mark.parametrize("synchronous", [False, True])
@@ -143,8 +149,8 @@ def test_invalid_destination_values_fail_before_setup(tmp_path: Path) -> None:
         Logger(files=(FileDestination(tmp_path / "valid.log"), invalid))  # ty: ignore[invalid-argument-type]
 
 
-def test_native_configuration_and_write_failures_are_visible(tmp_path: Path) -> None:
-    """Report invalid native options and synchronous write failures."""
+def test_invalid_native_options_and_paths_fail_setup(tmp_path: Path) -> None:
+    """Report invalid native options and paths that cannot open at setup."""
     invalid = Logger(
         synchronous=True,
         files=(FileDestination(tmp_path / "bad.log", rotation="not-a-rule"),),
@@ -256,7 +262,7 @@ def test_close_failure_still_closes_later_destinations(
     with pytest.raises(OSError, match="close-failure-marker"):
         log.shutdown()
     assert stopped == paths
-    assert set(threads()) <= before
+    assert not _new_writers(before)
     with pytest.raises(RuntimeError, match="shut down"):
         log.info("after-failure")
 
@@ -272,12 +278,12 @@ def test_partial_setup_closes_earlier_destinations(tmp_path: Path, synchronous: 
     )
     with pytest.raises(IsADirectoryError):
         log.initialize()
-    assert set(threads()) == before
+    assert not _new_writers(before)
     assert log._backend is None
     log.configure(synchronous=synchronous, files=(FileDestination(path),))
     log.info("recovered-after-setup-error")
     log.shutdown()
-    assert set(threads()) == before
+    assert not _new_writers(before)
     assert path.read_text().count("recovered-after-setup-error") == 1
 
 

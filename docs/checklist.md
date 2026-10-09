@@ -1,6 +1,6 @@
 # logalog build checklist
 
-Status: Chunks 1 through 7 are complete.
+Status: Chunks 1 through 7 and the review fixes are complete.
 
 Use this checklist for execution order. Keep the [longer plan](plan.md) as reference material.
 Build one working layer at a time. Resolve only the decisions that the current layer needs.
@@ -147,7 +147,33 @@ through 3.14 and against an isolated wheel. The source archive contains the
 example files but excludes generated example logs. The runtime dependency audit
 found no known vulnerabilities. Independent review and mechanical writing checks pass.
 
-## Rules for every chunk
+## Review fixes, performance, and service integration — complete
+
+- [x] Fix the confirmed findings of two independent reviews.
+- [x] Measure startup and call cost in rounds. Record each round in [performance](performance.md).
+- [x] Add `plain` and `json` stderr modes with attached fields.
+- [x] Add the optional takeover of standard `logging` as an explicit ownership policy.
+- [x] Remove low-value tests that check Beartype, the image comparator, or duplicate cases.
+
+Decisions on 2026-10-09: the owner removed Beartype and chose automatic delivery.
+Delivery is synchronous until `LOG.initialize()` selects the queue for workers.
+`TRACE` follows the debug control. YAML uses YAML 1.2 Booleans.
+PyYAML is the optional `yaml` extra. A short merge replaces Configurator.
+
+Result: `import logalog` takes about 12 ms, the same as `import logging`.
+A suppressed `debug` call takes about 1.3 µs. A one-record hook process takes
+about 58 ms with `json` stderr and about 92 ms with `rich` stderr.
+
+Verification: 209 tests pass with 100% line and branch coverage on Python 3.11 through 3.14. The installed wheel
+passes the same suite outside the checkout. Formatting, lint, types, complexity,
+dependency, and unused-code checks pass.
+
+Open items:
+
+- Choose the license, release version, and package metadata. Check name availability.
+- Decide a delivery policy for a blocked stderr or a full queue. Calls can block now.
+- Worker `flush()` has no timeout when the owner process stops.
+
 
 - Keep each chunk usable and tested before starting the next layer.
 - Add behavior tests with the code. Run formatting, lint, type, and relevant compatibility checks.
