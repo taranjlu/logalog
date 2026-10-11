@@ -80,8 +80,11 @@ def _quote_command(arguments: Sequence[str], *, windows: bool = os_name == "nt")
     return join(arguments)
 
 
-class _Section:
-    """Manage one logger section without changing exception behavior."""
+class Section:
+    """Manage one logger section without changing exception behavior.
+
+    Get an instance from :meth:`Logger.section`. Do not create it directly.
+    """
 
     def __init__(
         self, logger: Logger, title: str, elapsed: bool, source: _Source | None = None
@@ -579,7 +582,7 @@ class Logger:
 
             @wraps(function)
             async def asynchronous(*args: P.args, **kwargs: P.kwargs) -> R:
-                with _Section(self, name, elapsed, source):
+                with Section(self, name, elapsed, source):
                     return await function(*args, **kwargs)
 
             return cast(Callable[P, R], asynchronous)
@@ -591,7 +594,7 @@ class Logger:
 
         return synchronous
 
-    def section(self, title: str, *, elapsed: bool = False) -> _Section:
+    def section(self, title: str, *, elapsed: bool = False) -> Section:
         """Return a recursively indented logging section.
 
         Parameters
@@ -600,10 +603,20 @@ class Logger:
             Section identity shown in lifecycle events and structured metadata.
         elapsed : bool, default=False
             Add monotonic elapsed time to the completion or failure event.
+
+        Returns
+        -------
+        Section
+            A context manager for one active use at a time.
+
+        Raises
+        ------
+        ValueError
+            If the title is empty.
         """
         if not title:
             raise ValueError("Section title must not be empty")
-        return _Section(self, title, elapsed)
+        return Section(self, title, elapsed)
 
     def command(
         self,

@@ -8,24 +8,25 @@ from ._configuration import (
     FileDestination,
     load_configuration,
 )
-from ._logger import Logger as _Logger
-from ._logger import environment_names
+from ._logger import Logger, Section, environment_names
 
 __all__ = [
     "LOG",
     "Configuration",
     "ConfigurationError",
     "FileDestination",
+    "Logger",
+    "Section",
     "environment_names",
     "initialize_worker",
     "load_configuration",
 ]
 
-LOG = _Logger()
+LOG = Logger()
 register(LOG._close_at_exit)
 
 
-def initialize_worker(owner: _Logger) -> None:
+def initialize_worker(owner: Logger) -> None:
     """Connect this process's shared logger to an owner's queue.
 
     Parameters
