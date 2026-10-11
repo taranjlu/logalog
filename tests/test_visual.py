@@ -2,13 +2,14 @@
 
 import os
 import re
+import shutil
+import subprocess
 from collections.abc import Callable
 from functools import partial
 from io import StringIO
 from logging import LogRecord
 from pathlib import Path
 
-import OpenImageIO as oiio
 import pytest
 import resvg_py
 from rich.console import Console
@@ -20,6 +21,9 @@ from logalog import _rich
 from logalog._logger import Logger
 
 ASSETS = Path(__file__).parent / "visual"
+COMPARE = ASSETS / "compare.py"
+# OpenImageIO has no wheel for every supported Python version. Use a fixed version.
+COMPARE_PYTHON = "3.14"
 
 
 def _render_scene(
@@ -196,30 +200,31 @@ SCENES = {
 
 
 def _assert_image_matches(actual_path: Path, expected_path: Path) -> None:
-    """Compare decoded pixels exactly and save an opaque difference image."""
-    actual, expected = oiio.ImageBuf(str(actual_path)), oiio.ImageBuf(str(expected_path))
-    assert actual.read(), actual.geterror()
-    assert expected.read(), f"Cannot read reference {expected_path}: {expected.geterror()}"
-    actual_spec, expected_spec = actual.spec(), expected.spec()
-    assert (actual_spec.width, actual_spec.height, actual_spec.nchannels) == (
-        expected_spec.width,
-        expected_spec.height,
-        expected_spec.nchannels,
-    ), f"Image dimensions or channels differ: {actual_path} versus {expected_path}"
-    result = oiio.ImageBufAlgo.compare(actual, expected, 0.0, 0.0)
-    assert not actual.has_error, actual.geterror()
-    assert not expected.has_error, expected.geterror()
-    if result.nfail:
-        difference = oiio.ImageBufAlgo.absdiff(actual, expected)
-        # Equal alpha channels subtract to zero; omit alpha so the diff is visible.
-        difference = oiio.ImageBufAlgo.channels(difference, (0, 1, 2))
-        diff_path = actual_path.with_name("difference.png")
-        assert difference.write(str(diff_path), oiio.UINT8), difference.geterror()
-        pytest.fail(
-            f"{result.nfail} pixels differ (max error {result.maxerror}). "
-            f"Expected: {expected_path}; actual: {actual_path}; difference: {diff_path}"
-        )
-    assert not result.error, f"Image comparison failed: {actual_path} versus {expected_path}"
+    """Compare decoded pixels exactly in the separate OpenImageIO environment."""
+    uv = shutil.which("uv")
+    assert uv is not None, "The image comparison needs uv on PATH"
+    # The script has its own locked environment, so it can use another Python version.
+    environment = {name: value for name, value in os.environ.items() if name != "VIRTUAL_ENV"}
+    result = subprocess.run(  # noqa: S603 -- Fixed comparison script without a shell.
+        [
+            uv,
+            "run",
+            "--quiet",
+            "--locked",
+            "--python",
+            COMPARE_PYTHON,
+            "--script",
+            str(COMPARE),
+            str(actual_path),
+            str(expected_path),
+        ],
+        capture_output=True,
+        text=True,
+        env=environment,
+        check=False,
+    )
+    if result.returncode:
+        pytest.fail(result.stdout + result.stderr)
 
 
 @pytest.mark.parametrize("synchronous", [False, True], ids=["queued", "synchronous"])

@@ -3,7 +3,11 @@
 Run `just test-images` for the focused checks. Full test runs also include them.
 
 `test_visual.py` records the real Rich console after queued output is flushed.
-It renders SVG to PNG with `resvg-py`. OpenImageIO compares the decoded pixels
+It renders SVG to PNG with `resvg-py` under the Python version of the test run.
+
+The `compare.py` uv script compares the PNG files in a separate environment.
+That environment uses Python 3.14 and `compare.py.lock`, because OpenImageIO has no
+wheel for every supported Python version. OpenImageIO compares the decoded pixels
 with reviewed reference PNGs at zero tolerance. Dimensions and channel counts
 must match. Both delivery modes use the same reference for each scene and width.
 
@@ -37,7 +41,7 @@ These cases are normal passing tests, not expected failures.
 
 ## Rendering environment
 
-Use the versions in `uv.lock`. The image tools are development dependencies.
+Use the `resvg-py` version in `uv.lock` and the OpenImageIO version in `compare.py.lock`.
 The renderer loads only the bundled DejaVu Sans Mono fonts, not system fonts.
 SVG web-font rules are removed from saved artifacts. Rendering needs no network.
 The unmodified regular, bold, and oblique fonts come from the
