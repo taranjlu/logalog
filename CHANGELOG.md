@@ -6,7 +6,9 @@ The project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-The first public release, version 1.0.0.
+## [1.0.0] - 2026-10-10
+
+The first public release.
 
 ### Added
 
@@ -24,3 +26,6 @@ The first public release, version 1.0.0.
 - An optional takeover of the root handlers of the standard `logging` module.
 - The public `Logger` and `Section` types for type annotations.
 - Support for Python 3.11 through 3.15.
+
+[Unreleased]: https://github.com/taranjlu/logalog/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/taranjlu/logalog/releases/tag/v1.0.0
