@@ -671,7 +671,7 @@ wheels = [
 
 [[package]]
 name = "logalog"
-version = "0.0.0"
+version = "1.0.0"
 source = { editable = "." }
 dependencies = [
     { name = "loguru" },
@@ -708,7 +708,7 @@ dev = [
 requires-dist = [
     { name = "loguru", specifier = ">=0.7.3,<0.8" },
     { name = "pyyaml", marker = "extra == 'yaml'", specifier = ">=6.0.3,<7" },
-    { name = "rich", specifier = ">=15.0.0,<16" },
+    { name = "rich", specifier = ">=13.8.1" },
 ]
 provides-extras = ["yaml"]
 
