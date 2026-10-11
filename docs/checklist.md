@@ -1,6 +1,6 @@
 # logalog build checklist
 
-Status: Chunks 1 through 7 and the review fixes are complete.
+Status: Chunks 1 through 7, the review fixes, and the release preparation are complete.
 
 Use this checklist for execution order. Keep the [longer plan](plan.md) as reference material.
 Build one working layer at a time. Resolve only the decisions that the current layer needs.
@@ -170,9 +170,21 @@ dependency, and unused-code checks pass.
 
 Open items:
 
-- Choose the license, release version, and package metadata. Check name availability.
 - Decide a delivery policy for a blocked stderr or a full queue. Calls can block now.
 - Worker `flush()` has no timeout when the owner process stops.
+
+## Release preparation — complete
+
+- [x] Choose the MIT License and version 1.0.0. Add package metadata and classifiers.
+- [x] Confirm that the name `logalog` is free on PyPI and TestPyPI.
+- [x] Add Python 3.15 support. The image comparison runs in a separate uv script environment,
+  so the full suite runs on every supported version.
+- [x] Set the lowest tested Rich version to 13.8.1 and remove the Rich upper bound.
+- [x] Export the `Logger` and `Section` types.
+- [x] Add the changelog, the contributor guide, and the CI and release workflows.
+- [x] Move development notes from the README to the contributor guide.
+
+The README lists the open items above as known limitations.
 
 
 - Keep each chunk usable and tested before starting the next layer.

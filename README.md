@@ -1,15 +1,25 @@
 # logalog
 
 Logalog is a Python logging library built with Loguru and Rich.
-The distribution and import package use the name `logalog`.
-Check name availability again before public release.
+It gives you one shared `LOG` object with readable terminal output, plain or JSON output,
+rotating log files, and live environment controls. It also supports worker processes,
+sections, function decorators, and command display.
 
-## Status
+## Installation
 
-The seven implemented layers provide typed logging, Rich output, and live environment controls.
-They also provide files, configuration loading, sections, decorators, and command display.
-Delivery is automatic by default: synchronous in one process, queued for worker processes.
-No package release or public repository exists as part of this setup.
+Install the package from PyPI:
+
+```bash
+pip install logalog
+```
+
+Install the `yaml` extra to load YAML configuration files:
+
+```bash
+pip install "logalog[yaml]"
+```
+
+Logalog supports Python 3.11 through 3.15. The tests run on Linux.
 
 ## Usage
 
@@ -321,14 +331,10 @@ The takeover applies only to records that reach the root logger:
 The takeover applies to the process that calls `LOG.configure()`. Worker processes
 do not take over their own root logger.
 
-## Plan
-
-Use the [build checklist](docs/checklist.md) for the next work chunks.
-Keep the [development plan](docs/plan.md) as reference material.
-
 ## Runnable example
 
-From the repository root, run:
+The repository contains a runnable example, [`examples/workflow.py`](https://github.com/taranjlu/logalog/blob/master/examples/workflow.py).
+Clone the repository. Then, from the repository root, run:
 
 ```bash
 uv run python examples/workflow.py
@@ -343,81 +349,16 @@ Repeated runs append records. Rotation limits each active file to about 10 MB
 and retains two archives. The displayed command does not run.
 The example restores its process-local debug setting and closes the logger.
 
-## Structure
+## Known limitations
 
-- `src/logalog/`: package source and type marker.
-- `tests/`: tests for package behavior.
-- `pyproject.toml`: package metadata and tool settings.
-- `uv.lock`: exact development dependency versions.
-- `justfile`: development commands.
-- `mise.toml`: development tool versions.
+- The tests run only on Linux. Windows and macOS can work, but no test covers them.
+- A blocked stderr or a full queue pipe blocks the calling thread.
+- `LOG.flush()` and `LOG.shutdown()` have no timeout.
+  A worker flush waits for the owner writer, so do not flush after the owner stops.
+- Forced process termination can lose queued records.
+- MessagePack output is not available.
 
-## Development
+## Changes and development
 
-Use Python 3.11 through 3.14 and `uv`.
-The development tool versions are in `mise.toml`.
-
-```bash
-uv sync
-uv run ruff format --check .
-uv run ruff check .
-uv run ty check
-uv run pytest
-uv build --no-sources
-```
-
-With `just` available, use `just check`, `just test`, and `just build`.
-`just check` runs Ruff, Ty, Complexipy, Deptry, Vulture, Bandit, and pip-audit.
-Use `just lint` for local static checks. `just security` needs network access
-for its audit of locked runtime dependencies. Development tools are not runtime dependencies.
-
-Complexipy compares functions against `complexipy-snapshot.json` and a threshold of 15.
-The baseline records existing complexity in `command` and `_deliver`.
-Review those functions before replacing the baseline with `uv run complexipy --snapshot-create`.
-Do not update it only to make a check pass. Vulture checks source and tests at 90% confidence.
-Bandit reports findings with at least medium severity and medium confidence.
-
-Pytest Randomly changes test order and reports its seed. Use `just test-random 42`
-to repeat a seed. Hypothesis checks module-name encoding across Unicode inputs.
-Pytest Asyncio runs coroutine tests in strict mode with function-scoped event loops.
-
-Pytest Sugar supplies interactive progress. Use `just test-spec` for specification
-output. That command disables Sugar to prevent conflicting output formats.
-
-Use `just matrix` to run the Python 3.11–3.14 tests through Nox and uv.
-The four Python sessions run concurrently. Tests within each session remain sequential.
-Each session keeps coverage data, the pytest cache, and Hypothesis data in its own
-`.nox/tests-3-XX/test-artifacts/` directory and independently enforces 100% coverage.
-Nox currently labels parallel execution experimental.
-
-Use `uv run nox --parallel 1` for sequential sessions.
-`just test-matrix` remains an alias. Nox reuses isolated environments, installs
-from the frozen lockfile, and fails if a required interpreter is missing.
-Use `uv run nox -s tests-3.12 -- --randomly-seed=42` to select a session and pass pytest arguments.
-Tests cover output, caller information, exceptions, explicit input checks, threads, import safety, and application handler isolation.
-
-Full test runs fail below 100% line and branch coverage of `logalog`.
-Coverage includes subprocess execution.
-Use `just coverage` to write an HTML report to `htmlcov/index.html`.
-Use `just test-images` for the OpenImageIO visual regression checks.
-They cover levels, wrapping, indentation, tables, styles, code, and commands
-at multiple widths. Two representative cases also check queued delivery.
-See [image test guidance](tests/visual/README.md) for fonts and reference updates.
-
-For focused tests, use `uv run pytest --no-cov <test-path>`.
-Run the full suite before you finish a change. Do not add exclusions to reach the coverage target.
-
-Each accepted call creates one Loguru event. Native file sinks retain its original
-message, exception, timestamp, and user fields. The console adapter changes only
-a local copy for presentation. Prepared console data stays outside JSON record fields.
-
-The backend adapter uses private Loguru constructors to create an independent logger.
-It also reuses Loguru's private `StandardSink` adapter for Rich output.
-Copying the shared logger can fail when an application has existing file handlers.
-The dependency range limits Loguru to `>=0.7.3,<0.8`.
-Test the adapter before changing that range.
-
-## Scope
-
-Add one working layer at a time.
-Choose the license before public distribution.
+The [changelog](https://github.com/taranjlu/logalog/blob/master/CHANGELOG.md) lists the changes in each release.
+The [contributor guide](https://github.com/taranjlu/logalog/blob/master/CONTRIBUTING.md) tells you how to set up, check, and release the project.
